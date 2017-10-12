@@ -1,0 +1,25 @@
+#######################################
+# Syntax Coloring Map LedStrip
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+LedStrip	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin			KEYWORD2
+end				KEYWORD2
+set				KEYWORD2
+update			KEYWORD2
+
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+WS2812		LITERAL1
+WS2812B		LITERAL1
+APA102		LITERAL1

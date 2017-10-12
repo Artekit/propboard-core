@@ -1,0 +1,37 @@
+#######################################
+# Syntax Coloring Map PropButton
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+PropButton					KEYWORD1
+ButtonEvent					KEYWORD1
+ButtonLedType				KEYWORD1
+ButtonType					KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin						KEYWORD2
+end							KEYWORD2
+pressed						KEYWORD2
+released					KEYWORD2
+setLongPressTime			KEYWORD2
+getEvent					KEYWORD2
+resetEvents					KEYWORD2
+blink						KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+ButtonActiveLow				LITERAL1
+ButtonActiveHigh			LITERAL1
+ButtonLedActiveLow			LITERAL1
+ButtonLedActiveHigh			LITERAL1
+EventNone					LITERAL1
+ButtonPressed				LITERAL1
+ButtonReleased				LITERAL1
+ButtonLongPressed			LITERAL1
+ButtonShortPressAndRelease	LITERAL1

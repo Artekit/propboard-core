@@ -1,0 +1,22 @@
+propboard.name=Artekit PropBoard
+propboard.upload.tool=avrdude
+propboard.upload.protocol=stk500v2
+propboard.upload.maximum_size=245760
+propboard.upload.use_1200bps_touch=false
+propboard.upload.wait_for_upload_port=false
+propboard.upload.native_usb=false
+propboard.upload.speed=230400
+propboard.upload.ram.maximum_size=65536
+propboard.upload.flash.maximum_size=245760
+propboard.upload.mem_start=0x08000000
+propboard.upload.params.quiet=-q -q
+
+propboard.build.mcu=cortex-m4
+propboard.build.f_cpu=84000000L
+propboard.build.core=propboard
+propboard.build.extra_flags=-DSTM32F401xx -DHSE_VALUE=10000000 -mthumb -DUSE_STDPERIPH_DRIVER -DARM_MATH_CM4
+propboard.build.ldscript=STM32F401RCT6.ld
+propboard.build.variant=propboard_v1
+propboard.build.variant_system_lib=libstm32f4xx.a
+propboard.build.board=STM32F4_PROPBOARD
+

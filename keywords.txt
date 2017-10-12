@@ -1,0 +1,87 @@
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+HBLED	KEYWORD1
+Motion	KEYWORD1
+WavChainPlayer	KEYWORD1
+RawChainPlayer	KEYWORD1
+WavPlayer	KEYWORD1
+RawPlayer	KEYWORD1
+Audio	KEYWORD1
+AudioFileHelper	KEYWORD1
+AudioSource	KEYWORD1
+Button	KEYWORD1
+OUTPUT_BUFFER	KEYWORD1
+MotionInterrupt KEYWORD1
+MotionInterruptCallback KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin			KEYWORD2
+end				KEYWORD2
+play	KEYWORD2
+playRandom	KEYWORD2
+stop	KEYWORD2
+pause	KEYWORD2
+resume	KEYWORD2
+chain	KEYWORD2
+chainRandom	KEYWORD2
+setValue	KEYWORD2
+setCurrent	KEYWORD2
+restart	KEYWORD2
+mute	KEYWORD2
+unmute	KEYWORD2
+isPlaying	KEYWORD2
+setVolume	KEYWORD2
+setAnalyzeCallback	KEYWORD2
+setMixingFunction	KEYWORD2
+setScale	KEYWORD2
+setDataRate	KEYWORD2
+enable	KEYWORD2
+disable	KEYWORD2
+configDataReady	KEYWORD2
+configTransient	KEYWORD2
+configAnyMotion	KEYWORD2
+configPulse	KEYWORD2
+getInterruptSource	KEYWORD2
+getAnyMotionSource	KEYWORD2
+getTransientSource	KEYWORD2
+getPulseSource	KEYWORD2
+isEnabled	KEYWORD2
+writeRegister	KEYWORD2
+readRegister	KEYWORD2
+readRegisters	KEYWORD2
+read	KEYWORD2
+enterLowPowerMode	KEYWORD2
+readBattery	KEYWORD2
+power5V	KEYWORD2
+power3V3	KEYWORD2
+replay	KEYWORD2
+duration	KEYWORD2
+getCurrent	KEYWORD2
+getValue	KEYWORD2
+ramp	KEYWORD2
+shimmer	KEYWORD2
+flash	KEYWORD2
+withEffect	KEYWORD2
+stopEffect	KEYWORD2
+getChainStatus	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+AudioSourceStopped	LITERAL1
+AudioSourcePlaying	LITERAL1
+AudioSourcePaused	LITERAL1
+PlayModeNormal	LITERAL1
+PlayModeLoop	LITERAL1
+PlayModeBlocking	LITERAL1
+MotionInterruptNone	LITERAL1
+MotionInterrupt1	LITERAL1
+MotionInterrupt2	LITERAL1
+PlayingNone	LITERAL1
+PlayingMain	LITERAL1
+PlayingChained	LITERAL1
+PlayingTransition	LITERAL1
