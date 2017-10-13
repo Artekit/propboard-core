@@ -17,9 +17,9 @@ The code can be installed (and compiled with the Arduino IDE) following these in
 
 You can report bugs here by creating a new issue or in the dedicated PropBoard forum (https://forum.artekit.eu/c/propboard).
 
-## Current version
+## Version
 
-v1.0.2
+These files belong to the core version v1.0.2. This is the version number shown when installing the PropBoard Board Package from the Arduino IDE boards manager.
 
 ## License
 
