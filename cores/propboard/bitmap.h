@@ -62,9 +62,11 @@ static const uint8_t cie_lut[256] = {
 };
 
 #define RGB(r,g,b) 		((COLOR) (r | ((uint32_t) g << 8) | ((uint32_t) b << 16)))
+#define RGBW(r,g,b,w)	((COLOR) (r | ((uint32_t) g << 8) | ((uint32_t) b << 16) | ((uint32_t) w << 24)))
 #define getRed(color)  	(color & 0xFF)
 #define getGreen(color)	((color >> 8) & 0xFF)
 #define getBlue(color)	((color >> 16) & 0xFF)
+#define getWhite(color)	((color >> 24) & 0xFF)
 
 #define MAX_RGB_LINE_WIDTH	1920
 
