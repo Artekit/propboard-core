@@ -240,7 +240,6 @@ size_t UARTClass::write( uint8_t uc_data )
 
 void UARTClass::IrqHandler( void )
 {
-	uint32_t sr = _pUart->SR;
 	uint8_t c;
 	
 	if (USART_GetFlagStatus(_pUart, USART_FLAG_RXNE))
