@@ -65,12 +65,12 @@ void TwoWire::begin(void)
 	i2c2.begin(400000);
 }
 
-void TwoWire::begin(uint8_t address)
+void TwoWire::begin(uint8_t /* address */)
 {
 	// Slave mode not supported
 }
 
-void TwoWire::begin(int address)
+void TwoWire::begin(int /* address */)
 {
 	// Slave mode not supported
 }
