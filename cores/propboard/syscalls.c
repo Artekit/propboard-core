@@ -97,12 +97,12 @@ extern int _read(UNUSED(int file), UNUSED(char *ptr), UNUSED(int len) )
     return 0 ;
 }
 
-extern int _write( UNUSED(int file), char *ptr, int len )
+extern int _write( UNUSED(int file), UNUSED(char *ptr), UNUSED(int len) )
 {
     return 0;
 }
 
-extern void _exit( int status )
+extern void _exit( UNUSED(int status) )
 {
     for ( ; ; ) ;
 }
