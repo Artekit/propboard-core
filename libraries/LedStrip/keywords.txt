@@ -11,15 +11,31 @@ LedStrip	KEYWORD1
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
-begin			KEYWORD2
-end				KEYWORD2
-set				KEYWORD2
-update			KEYWORD2
-
+begin				KEYWORD2
+end					KEYWORD2
+set					KEYWORD2
+update				KEYWORD2
+updating			KEYWORD2
+endUpdate			KEYWORD2
+setMultiplier		KEYWORD2
+getMultiplier		KEYWORD2
+withEffect			KEYWORD2
+stopEffect			KEYWORD2
+shimmer				KEYWORD2
+changeShimmerColor	KEYWORD2
+setUpdateLimit		KEYWORD2
+getUpdateLimit		KEYWORD2
+getType				KEYWORD2
+getLedCount			KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
 #######################################
-WS2812		LITERAL1
-WS2812B		LITERAL1
-APA102		LITERAL1
+WS2812					LITERAL1
+WS2812B					LITERAL1
+APA102					LITERAL1
+SK6812RGBW				LITERAL1
+LedStripEffectNone		LITERAL1
+LedStripEffectShimmer	LITERAL1
+LedStripEffectRamp		LITERAL1
+
