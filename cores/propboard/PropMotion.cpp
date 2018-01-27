@@ -300,6 +300,62 @@ bool PropMotion::configAnyMotion(Axis axis, float force_mg, uint32_t time, Motio
 	return true;
 }
 
+bool PropMotion::setLowNoiseMode(bool enable)
+{
+	uint8_t value = 0;
+
+	if (!readRegister(MMA8452_CTRL_REG1, &value))
+		return false;
+
+	if (enable)
+	{
+		if (!(value & 0x04))
+		{
+			value |= 0x04;
+
+			if (!writeRegister(MMA8452_CTRL_REG1, value))
+				return false;
+		}
+	} else {
+		if (value & 0x04)
+		{
+			value &= ~0x04;
+			if (!writeRegister(MMA8452_CTRL_REG1, value))
+				return false;
+		}
+	}
+
+	return true;
+}
+
+bool PropMotion::setHighPassFilter(bool enable)
+{
+	uint8_t value = 0;
+
+	if (!readRegister(MMA8452_XYZ_DATA_CFG, &value))
+		return false;
+
+	if (enable)
+	{
+		if (!(value & 0x10))
+		{
+			value |= 0x10;
+
+			if (!writeRegister(MMA8452_XYZ_DATA_CFG, value))
+				return false;
+		}
+	} else {
+		if (value & 0x10)
+		{
+			value &= ~0x10;
+			if (!writeRegister(MMA8452_XYZ_DATA_CFG, value))
+				return false;
+		}
+	}
+
+	return true;
+}
+
 bool PropMotion::configTransient(Axis axis, float force_mg, uint32_t time, MotionInterrupt irq)
 {
 	uint8_t value = 0;

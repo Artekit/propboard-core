@@ -135,6 +135,8 @@ public:
 	bool disable();
 	bool setScale(uint32_t scale);
 	bool setDataRate(uint32_t data_rate);
+	bool setHighPassFilter(bool enable);
+	bool setLowNoiseMode(bool enable);
 	bool dataReady();
 
 	bool configDataReady(MotionInterrupt irq);
