@@ -92,7 +92,6 @@ size_t File::write(uint8_t val)
 
 size_t File::write(const uint8_t *buf, size_t size)
 {
-	size_t t;
 	unsigned int written;
 
 	if (_file && f_write(_file, buf, size, &written) == FR_OK)
