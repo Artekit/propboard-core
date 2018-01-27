@@ -1,0 +1,23 @@
+#######################################
+# Syntax Coloring Map PropConfig
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+PropConfig					KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin						KEYWORD2
+readValue					KEYWORD2
+readArray					KEYWORD2
+writeValue					KEYWORD2
+writeArray					KEYWORD2
+sectionExists				KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
