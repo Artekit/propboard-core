@@ -27,6 +27,7 @@
 #include <PropAudio.h>
 #include "AudioSource.h"
 #include "Arduino.h"
+#include "AudioUtil.h"
 
 AudioSource::AudioSource()
 {
@@ -39,7 +40,15 @@ AudioSource::AudioSource()
 	update_callback = NULL;
 	update_callback_param = buff_alloc = read_ptr = NULL;
 	new_data_callback = NULL;
-	volume = 1.0f;
+	current_volume = 1.0f;
+	float_array = NULL;
+
+	target_volume = current_volume;
+	target_volume_samples = 0;
+	target_volume_step = 0;
+
+	current_pitch = 1.0f;
+	pitch_initialized = false;
 }
 
 AudioSource::~AudioSource()
@@ -197,20 +206,153 @@ void AudioSource::setNewDataCallback(newDataCallback* callback)
 	__enable_irq();
 }
 
-bool AudioSource::update()
+UpdateResult AudioSource::update(uint32_t min_samples)
 {
 	if (update_callback)
-		return (update_callback)(this, update_callback_param);
+		return (update_callback)(this, min_samples, update_callback_param);
 
-	return false;
+	return SourceIdling;
+}
+
+void AudioSource::changeVolume()
+{
+	if (target_volume == current_volume && current_volume == 1)
+		return;
+
+	// Only 16-bit audio is supported right now
+	if (bitsPerSample() != 16)
+		return;
+
+	int16_t* ptr = (int16_t*) getReadPtr();
+	uint32_t samples = getSamplesLeft();
+
+	if (samples > MIN_UPDATE_SAMPLES)
+		samples = MIN_UPDATE_SAMPLES;
+	else if (!samples)
+		return;
+
+	if (isStereo())
+		samples *= 2;
+
+	if (current_volume != target_volume && target_volume_samples)
+	{
+		while (true)
+		{
+			if (!samples)
+				return;
+
+			if (!target_volume_samples)
+			{
+				current_volume = target_volume;
+				break;
+			}
+
+			*ptr = (int16_t)((float) *ptr * current_volume);
+			ptr++;
+			samples--;
+
+			if (isStereo())
+			{
+				*ptr = (int16_t)((float) *ptr * current_volume);
+				ptr++;
+				samples--;
+			}
+
+			current_volume -= target_volume_step;
+			target_volume_samples--;
+		}
+	}
+
+	if (current_volume == 0)
+	{
+		memset(ptr, 0, samples * sizeof(int16_t));
+		return;
+	}
+
+	if (current_volume != 1)
+	{
+		while (samples)
+		{
+			*ptr = (int16_t)((float) *ptr * current_volume);
+			ptr++;
+			samples--;
+		}
+	}
+}
+
+void AudioSource::changePitch()
+{
+	if (!pitch_initialized || current_pitch == 1)
+		return;
+
+	// Only 16-bit audio is supported right now
+	if (bitsPerSample() != 16)
+		return;
+
+	uint32_t samples = getSamplesLeft();
+
+	if (samples > MIN_UPDATE_SAMPLES)
+		samples = MIN_UPDATE_SAMPLES;
+	else if (!samples)
+		return;
+
+	if (isStereo())
+		samples *= 2;
+
+	PCM16ToFloat((int16_t*) getReadPtr(), float_array, samples);
+	pitch_shifter.tick(float_array, samples);
+	floatToPCM16(float_array, (int16_t*) getReadPtr(), samples);
 }
 
 uint8_t* AudioSource::mixingStarts()
 {
+	// About to mix this track. Change volume and pitch if required
+	changeVolume();
+	changePitch();
+
 	return getReadPtr();
 }
 
 void AudioSource::mixingEnded(uint32_t samples)
 {
 	skip(samples);
+}
+
+bool AudioSource::setPitch(float value)
+{
+	if (!pitch_initialized)
+	{
+		pitch_shifter.begin();
+		pitch_shifter.setEffectMix(1);
+		float_array = (float*) malloc(sizeof(float) * MIN_OUTPUT_SAMPLES * 2);
+		if (!float_array)
+			return false;
+
+		pitch_initialized = true;
+	}
+
+	pitch_shifter.setShift(value);
+	current_pitch = value;
+	return true;
+}
+
+void AudioSource::setVolume(float value)
+{
+	if (value == current_volume)
+	{
+		target_volume = value;
+		target_volume_samples = 0;
+		target_volume_step = 0;
+	} else {
+		__disable_irq();
+		if (playing())
+		{
+			target_volume = value;
+			target_volume_samples = VOLUME_CHANGE_SAMPLES;
+			target_volume_step = (current_volume - value) / VOLUME_CHANGE_SAMPLES;
+		} else {
+			target_volume = current_volume = value;
+		}
+		__enable_irq();
+	}
 }
