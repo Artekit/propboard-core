@@ -42,6 +42,8 @@ extern "C"{
 #include <chip.h>
 #include "wiring_constants.h"
 
+#define UNUSED(x) (void)(x)
+
 #define VARIANT_MCK	84000000
 
 extern uint32_t GetTickCount();
