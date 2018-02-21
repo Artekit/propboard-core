@@ -86,8 +86,8 @@ bool PropConfig::replaceFileWithBackup()
 int32_t PropConfig::findSection(const char* section)
 {
 	int32_t line = 0;
+
 	f_lseek(&_file, 0);
-	char* section_read;
 
 	while (readLine(_line_buffer_rd))
 	{
@@ -96,11 +96,13 @@ int32_t PropConfig::findSection(const char* section)
 		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
 			continue;
 
-		section_read = isValidSection(_line_buffer_rd);
-		if (section_read)
+		if (getValidSection(_line_buffer_rd))
 		{
-			if (strncasecmp(section_read, section, strlen(section)) == 0)
-				return line;
+			if (strlen(section) == strlen(_line_buffer_rd))
+			{
+				if (strncasecmp(_line_buffer_rd, section, strlen(_line_buffer_rd)) == 0)
+					return line;
+			}
 		}
 	}
 
@@ -140,7 +142,7 @@ bool PropConfig::findKey(const char* section, const char* key, int32_t* section_
 		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
 			continue;
 
-		if (isValidSection(_line_buffer_rd))
+		if (getValidSection(_line_buffer_rd))
 			// Found another section while searching for a key, so ...
 			break;
 
@@ -174,7 +176,7 @@ bool PropConfig::readLine(char* line)
 	char c;
 	uint32_t idx = 0;
 	UINT read;
-	
+
 	while (idx < CONFIG_MAX_LINE_LEN)
 	{
 		if (f_read(&_file, &c, 1, &read) != FR_OK || read != 1)
@@ -201,62 +203,20 @@ bool PropConfig::readLine(char* line)
 
 bool PropConfig::lineIsCommentedOut(char* line)
 {
-	bool slash = false;
-	
-	while (*line)
-	{
-		if (*line == 0x09 || *line == 0x20)
-		{
-			// Ignore tabs and spaces
-		} else {
-			if (*line == '#')
-			{
-				if (slash)
-					return false;
-				
-				return true;
-			}
-			
-			if (*line == '/')
-			{
-				if (slash)
-					return true;
-			
-				slash = true;
-			} else {
-				slash = false;
-			}
-		}
-		
+	while (*line && (*line == 0x09 || *line == 0x20))
+		// Ignore tabs and spaces
 		line++;
-	}
-	
-	return NULL;
-}
 
-char* PropConfig::lineHasComments(char* line)
-{
-	bool slash = false;
-	
-	while (*line)
-	{
-		if (*line == '#')
-			return line;
-		
-		if (*line == '/')
-		{
-			if (slash)
-				return line-1;
+	if (*line == '\0')
+		return false;
+
+	if (*line == '#' || *line == ';')
+		return true;
 			
-			slash = true;
-		} else {
-			slash = false;
-		}
-		
-		line++;
-	}
-	
-	return NULL;
+	if (*line == '/' && *(line+1) == '/')
+		return true;
+
+	return false;
 }
 
 bool PropConfig::isASCII(char c)
@@ -269,11 +229,11 @@ bool PropConfig::isASCII(char c)
  * - a string contained between [] characters
  * - cannot be of lenght = 0
  */
-char* PropConfig::isValidSection(char* line)
+bool PropConfig::getValidSection(char* line)
 {
 	uint32_t idx = 0;
+	uint32_t cpyidx = 0;
 	bool opener_found = false;
-	char* section = NULL;
 	
 	while (idx < CONFIG_MAX_LINE_LEN && line[idx])
 	{
@@ -290,71 +250,85 @@ char* PropConfig::isValidSection(char* line)
 			if (!opener_found)
 				return false;
 			
-			return section;
+			line[cpyidx] = '\0';
+			return true;
 		} else if (opener_found)
 		{
-			if (!section && isASCII(line[idx]))
-				// Remember where the section string started
-				section = &line[idx];
+			line[cpyidx++] = line[idx];
 		}
+
+		idx++;
 	}
 	
-	return NULL;
+	return false;
 }
 
-char* PropConfig::skipLeadingWhiteSpace(char* str, uint32_t len)
+char* PropConfig::skipWhiteSpaceAndTabs(char* str)
 {
-	uint32_t idx = 0;
-
-	while (idx < len)
+	while (*str)
 	{
-		if (*str != 0x20)
+		if (*str == 0x20 || *str == 0x09)
+			str++;
+		else
 			break;
-
-		str++;
 	}
 
 	return str;
 }
 
 /* 
-	Checks if the line contains the wanted key and returns a pointer
-	to the data string within the line.
+Checks if the line contains the wanted key and returns a pointer
+to the data string within the line.
 */
 char* PropConfig::verifyKey(const char* key, char* line)
 {
-	uint32_t equal = 0;
-	uint32_t data = 0;
-	uint32_t idx = 0;
-	char* ptr = line;
+	uint32_t count = 0;
+	char* ptr;
+	char* data_ptr;
+	char* key_ptr;
 	
-	// Count characters until '='
-	while (equal < CONFIG_MAX_LINE_LEN)
-	{
-		if (equal == 0)
-		{
-			if (*ptr == '=')
-				equal = idx;
-		} else {
-			if (*ptr != 0x20)
-			{
-				data = idx;
-				break;
-			}
-		}
-		
-		if (*ptr == '\0')
-			return NULL;
+	key_ptr = skipWhiteSpaceAndTabs(line);
+	if (!key_ptr)
+		return NULL;
 
-		idx++;
+	ptr = key_ptr;
+
+	// Find  '='
+	while (*ptr)
+	{
+		if (*ptr == '=')
+			break;
 		ptr++;
 	}
 
-	ptr = skipLeadingWhiteSpace(line, CONFIG_MAX_LINE_LEN);
-	if (strncasecmp(ptr, key, strlen(key)) == 0)
-		return line + data;
-	
-	return NULL;
+	if (!*ptr || ptr == key_ptr)
+		return NULL;
+
+	count = (uint32_t) ptr - (uint32_t) key_ptr;
+	data_ptr = ptr + 1;
+	ptr -= 1;
+
+	// Scan backwards and remove whitespace from the key length count
+	while (ptr != key_ptr)
+	{
+		if (*ptr == 0x20 || *ptr == 0x09)
+			count--;
+		else break;
+
+		ptr--;
+	}
+
+	if (count != strlen(key))
+		// Not our key
+		return NULL;
+
+	if (strncasecmp(key_ptr, key, count) != 0)
+		// Not our key
+		return NULL;
+
+	// Get the data
+	data_ptr = skipWhiteSpaceAndTabs(data_ptr);
+	return data_ptr;
 }
 
 bool PropConfig::readArray(const char* section, const char* key, void* values, uint8_t* count, DataType value_type)
@@ -418,7 +392,7 @@ bool PropConfig::readArray(const char* section, const char* key, void* values, u
 
 		idx++;
 
-		if (!end)
+		if (!end || *end == '\0')
 			break;
 
 		data = ++end;
@@ -583,7 +557,7 @@ bool PropConfig::readValue(const char* section, const char* key, void* value, Da
 			break;
 
 		case TypeUnsigned32:
-			*((uint16_t*) value) = strtoul(data, NULL, 10);
+			*((uint32_t*) value) = strtoul(data, NULL, 10);
 			break;
 
 		case TypeSigned32:
@@ -595,7 +569,7 @@ bool PropConfig::readValue(const char* section, const char* key, void* value, Da
 			break;
 
 		case TypeString:
-			if (!len || !len)
+			if (len == NULL || *len == 0)
 				return false;
 
 			strncpy((char*) value, data, *len);

@@ -96,9 +96,8 @@ private:
 	bool findKey(const char* section, const char* key, int32_t* section_line, int32_t* key_line, char** key_data);
 	char* verifyKey(const char* key, char* line);
 	char* getKeyData(const char* section, const char* key);
-	char* lineHasComments(char* line);
 	bool lineIsCommentedOut(char* line);
-	char* isValidSection(char* line);
+	bool getValidSection(char* line);
 	bool lineIsEmpty(char* line);
 	bool createBackupFile();
 	bool replaceFileWithBackup();
@@ -109,7 +108,7 @@ private:
 	bool writeLineToBackup(char* line);
 	bool writeKeyToBackup(const char* key, void* values, uint32_t count, DataType type);
 	bool copyToBackup(int32_t from, int32_t to);
-	char* skipLeadingWhiteSpace(char* str, uint32_t len);
+	char* skipWhiteSpaceAndTabs(char* str);
 	bool isASCII(char c);
 
 	FIL _file;
