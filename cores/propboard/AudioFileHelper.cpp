@@ -124,8 +124,6 @@ bool AudioFileHelper::parseWavHeader()
 
 bool AudioFileHelper::openWav(const char* name, bool infinite)
 {
-	UINT read;
-
 	if (opened)
 	{
 		f_close(&file);
