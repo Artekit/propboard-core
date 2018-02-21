@@ -211,6 +211,8 @@ bool HBLED::begin(uint16_t current_mA)
 	hbled_ch_init[channel - 1] = 1;
 	max_current = current_mA;
 	initialized = true;
+
+	return true;
 }
 
 void HBLED::end()
@@ -387,6 +389,9 @@ void HBLED::poll()
 				led_effect.active = false;
 				remove();
 			}
+			break;
+
+		case LedEffectNone:
 			break;
 	}
 }
