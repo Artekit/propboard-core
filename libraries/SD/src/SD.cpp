@@ -24,8 +24,8 @@ namespace SDLib {
 
 bool getNextPathComponent(const char *path, uint32_t *p_offset, char *buffer, uint32_t *b_offset, uint32_t len)
 {
-	int bufferOffset = *b_offset;
-	int offset = *p_offset;
+	uint32_t bufferOffset = *b_offset;
+	uint32_t offset = *p_offset;
 
 	// Skip root or other separator
 	if (path[offset] == '/')
@@ -53,13 +53,16 @@ SDClass::SDClass(FATFS* fs)
 	_fs = fs;
 }
 
-bool SDClass::begin(uint8_t csPin)
+bool SDClass::begin(uint8_t /* csPin */)
 {
 	return true;
 }
 
 bool SDClass::begin(uint32_t clock, uint8_t csPin)
 {
+	UNUSED(clock);
+	UNUSED(csPin);
+
 	return begin();
 }
 
