@@ -43,7 +43,6 @@ int main(void)
 	return 0;
 }
 
-
 uint32_t getRandom(uint32_t min, uint32_t max)
 {
 	uint32_t range;
