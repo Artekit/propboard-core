@@ -30,16 +30,10 @@
 #include <stm32f4xx.h>
 #include <ServiceTimer.h>
 #include <bitmap.h>
+#include "LedStripDriver.h"
 
 #define LED_STRIP_BUFFERS		2
 #define LED_STRIP_BUFFER_LEN	24
-
-enum LedStripeType
-{
-	WS2812B = 1,
-	APA102,
-	SK6812RGBW
-};
 
 typedef enum
 {
@@ -59,7 +53,7 @@ typedef struct _LedStripEffect
 		struct
 		{
 			uint8_t low;
-			int16_t value;
+			int16_t depth;
 			uint8_t step;
 			uint32_t update_count;
 			uint32_t update_every;
@@ -71,82 +65,37 @@ typedef struct _LedStripEffect
 
 		struct
 		{
-			float r_rate;
-			float g_rate;
-			float b_rate;
-			float w_rate;
+			float r_step;
+			float g_step;
+			float b_step;
+			float w_step;
+			float r_val;
+			float g_val;
+			float b_val;
+			float w_val;
+			COLOR end;
 			uint32_t cycles;
-		};
+		} ramp;
 	} params;
 } LedStripEffect;
 
-extern "C" void EXTI2_IRQHandler();
-extern "C" void DMA2_Stream5_IRQHandler(void);
-
-class LedStrip : public STObject
+class LedStrip : public LedStripDriver, STObject
 {
-	friend void EXTI2_IRQHandler();
-	friend void DMA2_Stream5_IRQHandler(void);
 
 public:
 	LedStrip();
-	~LedStrip();
 
-	bool begin(uint32_t count, LedStripeType type = WS2812B);
-	void end();
-	void set(uint32_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0);
-	void set(uint32_t index, COLOR color);
-	bool update(uint32_t index = 0, bool async = false);
-	inline bool updating() { return on_tx; }
-	void endUpdate();
-	void setMultiplier(float value);
-	inline float getMultiplier() { return multiplier; }
-	inline bool withEffect() { return effect.active; }
-	inline void stopEffect();
 	void shimmer(COLOR color, uint8_t amplitude, uint32_t hz, bool random);
-	void changeShimmerColor(COLOR color);
 	void ramp(COLOR start, COLOR end, uint32_t duration);
-	inline void setUpdateLimit(uint32_t limit) { update_limit = limit; }
-	inline uint32_t getUpdateLimit() { return update_limit; }
-	inline LedStripeType getType() { return led_type; }
-	inline uint32_t getLedCount() { return led_count; }
+	void changeShimmerColor(COLOR color);
+	void stopEffect();
+	inline bool withEffect() { return effect.active; }
 
 private:
-
-	void setWS2812(uint32_t index, uint8_t r, uint8_t g, uint8_t b);
-	void setSK6812RGBW(uint32_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t w);
-	void setAPA102(uint32_t index, uint8_t r, uint8_t g, uint8_t b);
-
-	inline void packWS2812(uint8_t r, uint8_t g, uint8_t b, uint8_t* ptr, uint32_t* index);
-	inline void packAPA102(uint8_t r, uint8_t g, uint8_t b, uint8_t* ptr, uint32_t* index);
-	inline void packSK6812RGBW(uint8_t r, uint8_t g, uint8_t b, uint8_t w, uint8_t* ptr, uint32_t* index);
-	void packSingleColor(COLOR color, int16_t multiplier, uint8_t* dest);
-
-	bool updateInternal(uint32_t index = 0, bool async = false);
+	void poll();
 	bool updateFromEffect();
 
-	uint32_t* packIntoBuffer(uint8_t* dst, uint32_t* bbaddr);
-	void swInterrupt();
-
-	void poll();
-
-	bool initialized;
-	bool use_single_color;
-	uint8_t* buffer;
-	uint32_t* bitband_address;
-	uint32_t led_count;
-	float multiplier;
-	uint8_t* code_buffer1;
-	uint8_t* code_buffer2;
-	uint8_t single_color[4];
-	uint32_t* single_color_sbba;
-	LedStripeType led_type;
 	LedStripEffect effect;
-	volatile bool on_tx;
-	uint8_t* updating_buffer;
-	uint32_t leds_to_update;
-	bool send_apa102_end_frame;
-	uint32_t update_limit;
 };
 
 #endif /* __LEDSTRIP_H__ */
