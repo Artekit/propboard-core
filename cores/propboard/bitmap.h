@@ -3,7 +3,7 @@
  * https://www.artekit.eu/products/devboards/propboard
  *
  * Written by Ivan Meleca
- * Copyright (c) 2017 Artekit Labs
+ * Copyright (c) 2018 Artekit Labs
  * https://www.artekit.eu
 
 ### bitmap.h
@@ -69,5 +69,7 @@ static const uint8_t cie_lut[256] = {
 #define getWhite(color)	((color >> 24) & 0xFF)
 
 #define MAX_RGB_LINE_WIDTH	1920
+
+COLOR alphaBlend(COLOR top, COLOR bottom, float alpha_top);
 
 #endif /* __BITMAP_H__ */
