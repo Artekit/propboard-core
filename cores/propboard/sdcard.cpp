@@ -1231,7 +1231,6 @@ static SD_Status sdSendBlockTxCmd(uint32_t sector, bool multi)
 static bool sdTransferDone()
 {
 	uint32_t response;
-	SDIO_CmdInitTypeDef sdio_cmd;
 	SD_Status status;
 
 	status = sdGetStatus(false);
@@ -1243,26 +1242,6 @@ static bool sdTransferDone()
 
 		if (response == SD_STATE_TRANSFER)
 			// SD is back to transfer state. Transfer is done.
-			return true;
-	}
-
-	return false;
-}
-
-static bool sdCardReady()
-{
-	uint32_t response;
-	SDIO_CmdInitTypeDef sdio_cmd;
-	SD_Status status;
-
-	status = sdGetStatus(false);
-
-	if (status == SD_NO_ERROR)
-	{
-		response = SDIO_GetResponse(SDIO_RESP1);
-		response = (response >> 8) & 0x01;
-
-		if (response)
 			return true;
 	}
 
@@ -1319,7 +1298,6 @@ static SD_Status sdTransferBlocksWithDMA(uint32_t sector, const uint8_t* buffer,
 {
 	uint8_t retries = SDIO_RETRIES;
 	uint32_t ticks;
-	uint32_t dctrl;
 	SD_STAT(uint32_t transfer_time = micros());
 
 	while (retries)
