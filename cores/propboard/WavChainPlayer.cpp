@@ -58,7 +58,7 @@ bool WavChainPlayer::begin(const char* filename)
 
 	samples_left = main_file.fillBuffer(buffer, buffer_size / sample_size);
 
-	if (samples_left < MIN_OUTPUT_SAMPLES)
+	if (samples_left < Audio.getOutputBufferSamples())
 	{
 		main_file.close();
 		return false;
