@@ -76,6 +76,7 @@ public:
 	inline bool eofReached() { return eof; }
 	inline bool isOpened() { return opened; }
 	inline WAV_HEADER* getWavHeader() { return &wav_header; }
+	inline uint32_t getHeaderSize() { return header_size; }
 	inline uint8_t getSampleSize() { return sample_size; }
 
 private:
