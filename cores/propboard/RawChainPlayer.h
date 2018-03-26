@@ -48,19 +48,20 @@ public:
 	bool chainRandom(const char* filename, const char* ext, uint32_t min, uint32_t max, PlayMode mode = PlayModeNormal);
 	bool play();
 	bool stop();
-	bool update();
+	UpdateResult update(uint32_t min_samples);
 	bool restart();
+	void skip(uint32_t samples);
 
 	uint32_t getChainedDuration();
 	inline ChainPlayStatus getChainStatus() { return chain_status; }
 	inline bool playingChained() { return (chain_status == PlayingChained || chain_status == PlayingTransition); }
+	uint8_t* getReadPtr();
 
 protected:
 	bool doChain(PlayMode mode);
-	bool update(AudioSource* src, AudioFileHelper* wav);
-	uint8_t* mixingStarts();
-	void mixingEnded(uint32_t samples);
+	UpdateResult update(AudioSource* src, AudioFileHelper* wav, uint32_t min_samples);
 	uint32_t getSamplesLeft();
+	void skipMainTrack(uint32_t samples);
 
 	AudioFileHelper main_file;
 	AudioFileHelper chained_file;

@@ -62,7 +62,7 @@ bool RawChainPlayer::begin(const char* filename, uint32_t fs, uint8_t bps, bool 
 	// Do the first buffer fill
 	samples_left = main_file.fillBuffer(buffer, buffer_size / sample_size);
 
-	if (samples_left < MIN_OUTPUT_SAMPLES)
+	if (samples_left < Audio.getOutputBufferSamples())
 	{
 		main_file.close();
 		return false;
@@ -190,9 +190,9 @@ bool RawChainPlayer::stop()
 }
 
 // We use the following function to update both main and chained tracks
-bool RawChainPlayer::update(AudioSource* src, AudioFileHelper* wav)
+UpdateResult RawChainPlayer::update(AudioSource* src, AudioFileHelper* wav, uint32_t min_samples)
 {
-	uint8_t* readptr;
+	uint8_t* new_data_ptr;
 	uint32_t samples_read = 0;
 	uint32_t samples_to_read = 0;
 
@@ -200,31 +200,40 @@ bool RawChainPlayer::update(AudioSource* src, AudioFileHelper* wav)
 	if (src->getSamplesLeft())
 	{
 		// Samples in the buffer are enough for another round
-		if (src->getSamplesLeft() >= MIN_OUTPUT_SAMPLES)
-			return true;
+		if (src->getSamplesLeft() >= min_samples)
+			return SourceUpdated;
 
 		// Check if we have reached EOF
 		if (wav->eofReached())
 			// We may have reached the EOF, but we still have samples
-			// to play. Just return true.
-			return true;
+			// to play. Just return SourceUpdated.
+			return SourceUpdated;
 
-		// We are dealing with a Loop mode playback and the samples in
-		// the buffer are not enough to guarantee a constant output,
-		// so fill the buffer partially.
-		readptr = src->getReadPtr() + (src->getSamplesLeft() * sample_size);
-		samples_to_read = (src->getBufferPtr() + src->getBufferSize() - readptr) / sample_size;
+		// We are dealing with a Loop mode playback and the samples in the buffer are less than
+		// min_samples. Fill the buffer entirely. Calculate how many samples we need to read to
+		// achieve that and where to store them in the buffer.
+		new_data_ptr = src->getReadPtr() + (src->getSamplesLeft() * sample_size);
+		samples_to_read = (src->getBufferPtr() + src->getBufferSize() - new_data_ptr) / sample_size;
 
+		// We may have already copied a chunk of samples from the main track into the chained track
+		// (because it was ending) and the readings from the main track buffer may not be aligned
+		// anymore, because the read pointer was moved arbitrarily when copying the data into the
+		// chained track. Check if the pointer to store the new samples in the buffer results to be
+		// at the end of it. If so, we need to move the data to the beginning of the buffer and then
+		// fill it entirely with new samples from the file.
+		// TBD: think about refactoring this whole function and fit it somehow into the RawPlayer
+		// base class.
 		if (!samples_to_read)
 		{
-			// Copy the remaining data to the beginning of the buffer
+			// This means that new_data_ptr is at the end of the buffer, so copy the remaining data
+			// to the beginning.
 			memcpy(src->getBufferPtr(), src->getReadPtr(), src->getSamplesLeft() * sample_size);
 
 			// Adjust the read (from file) pointer
-			readptr = src->getBufferPtr() + src->getSamplesLeft() * sample_size;
+			new_data_ptr = src->getBufferPtr() + src->getSamplesLeft() * sample_size;
 
 			// Update samples to read
-			samples_to_read = (src->getBufferPtr() + src->getBufferSize() - readptr) / sample_size;
+			samples_to_read = (src->getBufferPtr() + src->getBufferSize() - new_data_ptr) / sample_size;
 
 			// Set the reading pointer (of samples) to the beginning of the buffer
 			src->setReadPtr(src->getBufferPtr());
@@ -233,43 +242,44 @@ bool RawChainPlayer::update(AudioSource* src, AudioFileHelper* wav)
 		// Check if we have reached EOF
 		if (wav->eofReached())
 			// EOF and no samples left.
-			return false;
+			return SourceRemove;
 
 		// Otherwise read the entire buffer
 		src->setReadPtr(src->getBufferPtr());
-		readptr = src->getBufferPtr();
+		new_data_ptr = src->getBufferPtr();
 		samples_to_read = src->getBufferSize() / sample_size;
 	}
 
-	samples_read = wav->fillBuffer(readptr, samples_to_read);
+	samples_read = wav->fillBuffer(new_data_ptr, samples_to_read);
 
 	if (!samples_read)
-		return false;
+		return UpdateError;
 
 	src->setSamplesLeft(src->getSamplesLeft() + samples_read);
-	return true;
+	return SourceUpdated;
 }
 
-bool RawChainPlayer::update()
+UpdateResult RawChainPlayer::update(uint32_t min_samples)
 {
-	uint32_t offset;
-
 	if (chain_status == PlayingChained)
 	{
-		if (!update(&chained, &chained_file) || !chained.getSamplesLeft())
+		// Update the chained track
+		if (update(&chained, &chained_file, min_samples) != SourceUpdated ||
+			!chained.getSamplesLeft())
 		{
+			// Cannot update, jump to main track.
 			chained_file.close();
 			chain_status = PlayingMain;
-		} else if (chained.getSamplesLeft() < MIN_OUTPUT_SAMPLES)
+		} else if (chained.getSamplesLeft() < min_samples)
 		{
-			// The chained track will stop after this update. If we were using a WavPlayer object
-			// we may hear a 'click' while it loads the next WAV file. Here we will ensure
-			// a smooth and click-less transition by copying part of the main track at
-			// the end of the chained track.
+			// The chained track will stop after playing these samples. If we were using a WavPlayer
+			// object we may hear a 'click' while it loads the next WAV file. Here we will ensure
+			// a smooth and click-less transition by copying part of the main track at the end of
+			// the chained track.
 			uint8_t* offset = chained.getReadPtr() + (chained.getSamplesLeft() * sample_size);
 
 			// Be sure the main track has the samples to complete the chained track
-			if (samples_left < MIN_OUTPUT_SAMPLES - chained.getSamplesLeft())
+			if (samples_left < min_samples - chained.getSamplesLeft())
 			{
 				setReadPtr(buffer);
 				main_file.rewind();
@@ -277,34 +287,38 @@ bool RawChainPlayer::update()
 			}
 
 			// Copy
-			memcpy(offset, buffer, (MIN_OUTPUT_SAMPLES - chained.getSamplesLeft()) * sample_size);
+			memcpy(offset, buffer, (min_samples - chained.getSamplesLeft()) * sample_size);
 
-			// Adjust main read pointer
-			AudioSource::skip(MIN_OUTPUT_SAMPLES - chained.getSamplesLeft());
+			// Adjust main track read pointer and samples left counter
+			skipMainTrack(min_samples - chained.getSamplesLeft());
+			chained.setSamplesLeft(min_samples);
 
-			chained.setSamplesLeft(MIN_OUTPUT_SAMPLES);
+			// We are not using the chained file anymore
 			chained_file.close();
-			chain_status = PlayingTransition;
-		}
 
-		return true;
+			// Jump to transition status
+			chain_status = PlayingTransition;
+		} else return SourceUpdated;
 	}
 
 	if (chain_status == PlayingTransition)
 	{
+		//
 		if (chained.getSamplesLeft())
-			return true;
+			return SourceUpdated;
 
 		chain_status = PlayingMain;
 	}
 
 	if (chain_status == PlayingMain)
 	{
-		if (!update(this, &main_file) || !samples_left)
-			return false;
+		if (update(this, &main_file, min_samples) != SourceUpdated || !samples_left)
+			return UpdateError;
+
+		return SourceUpdated;
 	}
 
-	return true;
+	return SourceIdling;
 }
 
 bool RawChainPlayer::restart()
@@ -338,36 +352,52 @@ bool RawChainPlayer::restart()
 	return true;
 }
 
-uint8_t* RawChainPlayer::mixingStarts()
+uint8_t* RawChainPlayer::getReadPtr()
 {
-	// PropAudio is ready to mix us so select
-	// the pointer according to the track we're playing
 	switch (chain_status)
 	{
 		case PlayingMain:
-			return getReadPtr();
+			return read_ptr;
 
 		case PlayingChained:
 		case PlayingTransition:
 			return chained.getReadPtr();
+
+		case PlayingNone:
+			break;
 	}
 
 	return NULL;
 }
 
-void RawChainPlayer::mixingEnded(uint32_t samples)
+void RawChainPlayer::skipMainTrack(uint32_t samples)
 {
-	// Check which is the current playing track
-	// and skip samples accordingly
+	uint8_t* ptr = read_ptr;
+	uint32_t offset;
+
+	if (samples > samples_left)
+		samples = samples_left;
+
+	offset = samples * sample_size;
+	ptr += offset;
+	read_ptr = ptr;
+	samples_left -= samples;
+}
+
+void RawChainPlayer::skip(uint32_t samples)
+{
 	switch (chain_status)
 	{
 		case PlayingMain:
-			AudioSource::skip(samples);
+			skipMainTrack(samples);
 			break;
 
 		case PlayingChained:
 		case PlayingTransition:
 			chained.skip(samples);
+			break;
+
+		case PlayingNone:
 			break;
 	}
 }
@@ -382,6 +412,9 @@ uint32_t RawChainPlayer::getSamplesLeft()
 		case PlayingChained:
 		case PlayingTransition:
 			return chained.getSamplesLeft();
+
+		case PlayingNone:
+			break;
 	}
 
 	return 0;
