@@ -40,9 +40,10 @@ WavPlayer::~WavPlayer()
 
 bool WavPlayer::doPlay(PlayMode mode)
 {
-	if (!AudioSource::begin(audio_file.getWavHeader()->format.sample_rate,
+	if (!RawPlayer::begin(	audio_file.getWavHeader()->format.sample_rate,
 							audio_file.getWavHeader()->format.bits_per_sample,
-							audio_file.getWavHeader()->format.channels == 1))
+							audio_file.getWavHeader()->format.channels == 1,
+							audio_file.getHeaderSize()))
 	{
 		audio_file.close();
 		return false;
