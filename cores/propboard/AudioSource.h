@@ -29,16 +29,15 @@
 
 #include <stm32f4xx.h>
 #include <stddef.h>
+#include "stk/PitShift.h"
 
-#define MAX_BITS_PER_SAMPLE		24
-#define MAX_BYTES_PER_SAMPLE	(MAX_BITS_PER_SAMPLE / 8)
-#define MAX_SAMPLE_RATE_HZ		96000
-#define MAX_SOURCE_CHANNELS		2
-#define MIN_UPDATE_SAMPLES		512 // Same as MIN_OUTPUT_SAMPLES in Audio.h
-#define MIN_UPDATE_BUFFERS		2
-#define MAX_BUFFER				(MIN_UPDATE_SAMPLES * MAX_SOURCE_CHANNELS * MAX_BYTES_PER_SAMPLE * MIN_UPDATE_BUFFERS)
-#define AUDIOSOURCE_ALLOC		1
-#define INVALID_VOLUME_VALUE	0xFF
+#define MAX_BITS_PER_SAMPLE			24
+#define MAX_BYTES_PER_SAMPLE		(MAX_BITS_PER_SAMPLE / 8)
+#define MAX_SAMPLE_RATE_HZ			96000
+#define MAX_SOURCE_CHANNELS			2
+#define MAX_UPDATE_BUFFER_SIZE		4096
+#define INVALID_VOLUME_VALUE		0xFF
+#define VOLUME_CHANGE_SAMPLES		512
 
 enum AudioSourceStatus
 {
@@ -47,10 +46,18 @@ enum AudioSourceStatus
 	AudioSourcePaused
 };
 
+enum UpdateResult
+{
+	SourceIdling,
+	SourceUpdated,
+	SourceRemove,
+	UpdateError
+};
+
 class AudioSource;
 class PropAudio;
 
-typedef bool (UpdateCallback)(AudioSource*, void*);
+typedef UpdateResult (UpdateCallback)(AudioSource*, uint32_t min_samples, void*);
 typedef void (newDataCallback)(AudioSource*, uint8_t*, uint32_t);
 
 class AudioSource
@@ -68,12 +75,11 @@ public:
 	virtual bool stop();
 	virtual bool pause();
 	virtual bool resume();
-	virtual bool update();
+	virtual UpdateResult update(uint32_t min_samples);
 	virtual void skip(uint32_t samples);
 	virtual inline uint8_t* getBufferPtr() { return buffer; }
 	virtual inline uint8_t* getReadPtr() { return read_ptr; }
 	virtual inline void setReadPtr(uint8_t* ptr) { read_ptr = ptr; }
-	virtual inline uint8_t* getRelativeDataPtr(uint8_t* ptr, uint32_t offset) { return ptr + offset; }
 	virtual inline uint32_t getSamplesLeft() { return samples_left; }
 	virtual inline uint32_t getBufferSize() { return buffer_size; }
 	virtual inline bool isStereo() { return stereo; }
@@ -83,8 +89,15 @@ public:
 	virtual inline bool playing() { return status == AudioSourcePlaying; }
 	virtual inline uint32_t getSampleSize() { return sample_size; }
 	virtual inline void setSamplesLeft(uint32_t samples) { samples_left = samples; }
-	virtual void setVolume(float value) { volume = value; }
-	virtual float getVolume() { return volume; }
+	virtual void setVolume(float value);
+	virtual inline float getVolume() { return current_volume; }
+	virtual bool setPitch(float value);
+	virtual inline float getPitch() { return current_pitch; }
+	virtual inline uint8_t* getRelativeDataPtr(uint8_t* ptr, uint32_t offset)
+	{
+		return ptr + offset;
+	}
+
 	void setNewDataCallback(newDataCallback* callback);
 
 protected:
@@ -92,6 +105,8 @@ protected:
 	bool allocateBuffer();
 	bool deallocateBuffer();
 	void onNewData(uint8_t* dataptr, uint32_t samples);
+	void changeVolume();
+	void changePitch();
 	
 	virtual uint8_t* mixingStarts();
 	virtual void mixingEnded(uint32_t samples);
@@ -107,14 +122,21 @@ protected:
 	uint32_t samples_left;
 	uint8_t sample_size;
 	uint32_t buffer_size;
-	float volume;
+	uint32_t buffer_samples;
+	uint8_t* buffer_end;
 
-#if AUDIOSOURCE_ALLOC
+	float current_volume;
+	float target_volume;
+	float target_volume_step;
+	uint32_t target_volume_samples;
+
+	bool pitch_initialized;
+	float current_pitch;
+	PitShift pitch_shifter;
+	float* float_array;
+
 	uint8_t* buffer;
 	uint8_t* buff_alloc;
-#else
-	uint8_t buffer[MAX_BUFFER_SIZE];
-#endif
 
 	uint8_t* read_ptr;
 

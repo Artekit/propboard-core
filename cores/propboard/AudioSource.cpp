@@ -31,9 +31,7 @@
 
 AudioSource::AudioSource()
 {
-#if AUDIOSOURCE_ALLOC
 	buff_alloc = buffer = NULL;
-#endif
 	stereo = false;
 	bits_per_sample = sample_rate = samples_left = sample_size = buffer_size = 0;
 	next_to_mix = next_in_list = NULL;
@@ -86,21 +84,28 @@ void AudioSource::skip(uint32_t samples)
 	uint8_t* ptr = getReadPtr();
 	uint32_t offset;
 
-	if (samples > samples_left)
+	if (samples > getSamplesLeft())
 		samples = getSamplesLeft();
 
 	offset = samples * sample_size;
 	ptr += offset;
-	setReadPtr(ptr);
 
+	setReadPtr(ptr);
 	setSamplesLeft(samples_left - samples);
 }
 
 bool AudioSource::allocateBuffer()
 {
+	// Ensure the buffer is aligned with the I2S buffers
+	uint32_t alloc_size = sample_size * Audio.getOutputBufferSamples() * 10;
 
-#if AUDIOSOURCE_ALLOC
-	uint32_t alloc_size = sample_size * MIN_UPDATE_SAMPLES * MIN_UPDATE_BUFFERS;
+	if (alloc_size > MAX_UPDATE_BUFFER_SIZE)
+	{
+		// If alloc_size is greater than MAX_UPDATE_BUFFER_SIZE, allocate a buffer around
+		// MAX_UPDATE_BUFFER_SIZE
+		alloc_size = (MAX_UPDATE_BUFFER_SIZE / sample_size) / Audio.getOutputBufferSamples();
+		alloc_size = (alloc_size + 1) * Audio.getOutputBufferSamples() * sample_size;
+	}
 
 	if (buffer)
 	{
@@ -121,11 +126,8 @@ bool AudioSource::allocateBuffer()
 		buffer += (4 - ((uint32_t) buff_alloc & 0x03));
 
 	buffer_size = alloc_size;
-
-#else
-	buffer_size = MAX_BUFFER_SIZE;
-#endif
-
+	buffer_samples = buffer_size / sample_size;
+	buffer_end = buffer + buffer_size;
 	return true;
 }
 
@@ -134,13 +136,11 @@ bool AudioSource::deallocateBuffer()
 	buffer_size = 0;
 	sample_size = 0;
 
-#if AUDIOSOURCE_ALLOC
 	if (buff_alloc)
 	{
 		free(buff_alloc);
 		read_ptr = buffer = buff_alloc = NULL;
 	}
-#endif
 
 	return true;
 }
@@ -226,8 +226,8 @@ void AudioSource::changeVolume()
 	int16_t* ptr = (int16_t*) getReadPtr();
 	uint32_t samples = getSamplesLeft();
 
-	if (samples > MIN_UPDATE_SAMPLES)
-		samples = MIN_UPDATE_SAMPLES;
+	if (samples > Audio.getOutputBufferSamples())
+		samples = Audio.getOutputBufferSamples();
 	else if (!samples)
 		return;
 
@@ -291,8 +291,8 @@ void AudioSource::changePitch()
 
 	uint32_t samples = getSamplesLeft();
 
-	if (samples > MIN_UPDATE_SAMPLES)
-		samples = MIN_UPDATE_SAMPLES;
+	if (samples > Audio.getOutputBufferSamples())
+		samples = Audio.getOutputBufferSamples();
 	else if (!samples)
 		return;
 
@@ -324,7 +324,7 @@ bool AudioSource::setPitch(float value)
 	{
 		pitch_shifter.begin();
 		pitch_shifter.setEffectMix(1);
-		float_array = (float*) malloc(sizeof(float) * MIN_OUTPUT_SAMPLES * 2);
+		float_array = (float*) malloc(sizeof(float) * Audio.getOutputBufferSamples() * 2);
 		if (!float_array)
 			return false;
 
