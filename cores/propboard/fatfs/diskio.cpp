@@ -24,6 +24,8 @@ DSTATUS disk_status (
 	BYTE pdrv		/* Physical drive nmuber to identify the drive */
 )
 {
+	UNUSED(pdrv);
+
 	if (sdGetStatus() != SD_NO_ERROR)
 		return STA_NOINIT;
 
@@ -40,6 +42,8 @@ DSTATUS disk_initialize (
 	BYTE pdrv				/* Physical drive nmuber to identify the drive */
 )
 {
+	UNUSED(pdrv);
+
 	if (sdInitialize() == SD_NO_ERROR)
 		return RES_OK;
 
@@ -59,6 +63,8 @@ DRESULT disk_read (
 	UINT count		/* Number of sectors to read */
 )
 {
+	UNUSED(pdrv);
+
 	if (sdReadBlocks(sector, buff, count) != SD_NO_ERROR)
 		return RES_ERROR;
 
@@ -78,6 +84,8 @@ DRESULT disk_write (
 	UINT count			/* Number of sectors to write */
 )
 {
+	UNUSED(pdrv);
+
 	if (sdWriteBlocks(sector, buff, count) != SD_NO_ERROR)
 		return RES_ERROR;
 
@@ -96,6 +104,8 @@ DRESULT disk_ioctl (
 	void *buff		/* Buffer to send/receive control data */
 )
 {
+	UNUSED(pdrv);
+
 	WORD* ss = (WORD*) buff;
 
 	switch(cmd)
