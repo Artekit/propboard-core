@@ -39,14 +39,10 @@ AudioSource::AudioSource()
 	update_callback_param = buff_alloc = read_ptr = NULL;
 	new_data_callback = NULL;
 	current_volume = 1.0f;
-	float_array = NULL;
 
 	target_volume = current_volume;
 	target_volume_samples = 0;
 	target_volume_step = 0;
-
-	current_pitch = 1.0f;
-	pitch_initialized = false;
 }
 
 AudioSource::~AudioSource()
@@ -280,35 +276,10 @@ void AudioSource::changeVolume()
 	}
 }
 
-void AudioSource::changePitch()
-{
-	if (!pitch_initialized || current_pitch == 1)
-		return;
-
-	// Only 16-bit audio is supported right now
-	if (bitsPerSample() != 16)
-		return;
-
-	uint32_t samples = getSamplesLeft();
-
-	if (samples > Audio.getOutputBufferSamples())
-		samples = Audio.getOutputBufferSamples();
-	else if (!samples)
-		return;
-
-	if (isStereo())
-		samples *= 2;
-
-	PCM16ToFloat((int16_t*) getReadPtr(), float_array, samples);
-	pitch_shifter.tick(float_array, samples);
-	floatToPCM16(float_array, (int16_t*) getReadPtr(), samples);
-}
-
 uint8_t* AudioSource::mixingStarts()
 {
-	// About to mix this track. Change volume and pitch if required
+	// About to mix this track. Change volume if required.
 	changeVolume();
-	changePitch();
 
 	return getReadPtr();
 }
@@ -316,24 +287,6 @@ uint8_t* AudioSource::mixingStarts()
 void AudioSource::mixingEnded(uint32_t samples)
 {
 	skip(samples);
-}
-
-bool AudioSource::setPitch(float value)
-{
-	if (!pitch_initialized)
-	{
-		pitch_shifter.begin();
-		pitch_shifter.setEffectMix(1);
-		float_array = (float*) malloc(sizeof(float) * Audio.getOutputBufferSamples() * 2);
-		if (!float_array)
-			return false;
-
-		pitch_initialized = true;
-	}
-
-	pitch_shifter.setShift(value);
-	current_pitch = value;
-	return true;
 }
 
 void AudioSource::setVolume(float value)

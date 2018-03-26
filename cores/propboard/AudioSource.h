@@ -29,7 +29,6 @@
 
 #include <stm32f4xx.h>
 #include <stddef.h>
-#include "stk/PitShift.h"
 
 #define MAX_BITS_PER_SAMPLE			24
 #define MAX_BYTES_PER_SAMPLE		(MAX_BITS_PER_SAMPLE / 8)
@@ -92,7 +91,6 @@ public:
 	virtual void setVolume(float value);
 	virtual inline float getVolume() { return current_volume; }
 	virtual bool setPitch(float value);
-	virtual inline float getPitch() { return current_pitch; }
 	virtual inline uint8_t* getRelativeDataPtr(uint8_t* ptr, uint32_t offset)
 	{
 		return ptr + offset;
@@ -129,11 +127,6 @@ protected:
 	float target_volume;
 	float target_volume_step;
 	uint32_t target_volume_samples;
-
-	bool pitch_initialized;
-	float current_pitch;
-	PitShift pitch_shifter;
-	float* float_array;
 
 	uint8_t* buffer;
 	uint8_t* buff_alloc;
