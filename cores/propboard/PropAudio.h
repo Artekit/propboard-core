@@ -35,7 +35,7 @@
 #define Activate_PendSV() SCB->ICSR = SCB->ICSR | SCB_ICSR_PENDSVSET_Msk
 
 #ifndef AUDIO_STATS
-#define AUDIO_STATS		0
+#define AUDIO_STATS		1
 #endif
 
 #if AUDIO_STATS
@@ -44,10 +44,8 @@
 #define AUDIO_STAT(x)
 #endif // AUDIO_STATS
 
-#define MIN_OUTPUT_SAMPLES		512
-#define OUTPUT_BUFFER_SIZE		((MIN_OUTPUT_SAMPLES * MAX_SOURCE_CHANNELS) * MAX_BYTES_PER_SAMPLE)
+#define TARGET_LATENCY_US		5000
 #define MAX_OUTPUT_BUFFERS		2
-#define AUDIO_ALLOC				1
 
 typedef struct _output_buffer
 {
@@ -90,6 +88,7 @@ public:
 	void triggerUpdate();
 	void setAnalyzeCallback(audioAnalyzeCallback* analyze);
 	void setMixingFunction(audioMixCallback* mix);
+	inline uint32_t getOutputBufferSamples() { return output_samples; }
 
 	static PropAudio& instance()
 	{
@@ -106,7 +105,7 @@ protected:
 	void update();
 	void onI2STxFinished();
 	bool initI2S(uint32_t fs, uint8_t bps);
-	bool initCodec(uint32_t fs, uint8_t bps);
+	bool initCodec();
 	void startOutput();
 
 	bool checkSourceFormat(AudioSource* source);
@@ -117,16 +116,11 @@ protected:
 	static bool mix16Dual(OUTPUT_BUFFER* buf, AudioSource* sources);
 	static bool mix24(OUTPUT_BUFFER* buf, AudioSource* sources);
 
-#if AUDIO_ALLOC
-	bool allocate();
-	void deallocate();
+	bool allocateOutputBuffers();
+	void deallocateOutputBuffers();
 	uint8_t* buffer1;
 	uint8_t* buffer2;
-	uint8_t* buffers[2];
 	uint32_t buffer_size;
-#else
-	uint8_t buffers[2][OUTPUT_BUFFER_SIZE];
-#endif // AUDIO_ALLOC
 
 	OUTPUT_BUFFER output_buffers[2];
 	OUTPUT_BUFFER* play_buffer;
@@ -152,6 +146,8 @@ protected:
 #endif // AUDIO_STATS
 
 private:
+	uint32_t output_samples;
+
 	audioMixCallback* mix_callback;
 	audioAnalyzeCallback* analyze_callback;
 

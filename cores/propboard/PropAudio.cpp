@@ -62,10 +62,8 @@ PropAudio::PropAudio()
 	update_tick = 0;
 #endif // AUDIO_STATS
 
-#if AUDIO_ALLOC
-	buffer1 = buffer2 = buffers[0] = buffers[1] = NULL;;
+	buffer1 = buffer2 = NULL;;
 	buffer_size = 0;
-#endif // AUDIO_ALLOC
 }
 
 PropAudio::~PropAudio()
@@ -80,8 +78,7 @@ bool PropAudio::begin(uint32_t fs, uint8_t bps)
 	sample_rate = fs;
 	bits_per_sample = bps;
 
-#if AUDIO_ALLOC
-	if (!allocate())
+	if (!allocateOutputBuffers())
 		return false;
 
 	output_buffers[0].buffer = (uint32_t*) buffer1;
@@ -93,12 +90,6 @@ bool PropAudio::begin(uint32_t fs, uint8_t bps)
 
 	if ((uint32_t) buffer2 & 0x03)
 		output_buffers[1].buffer = (uint32_t*) ((uint8_t*) output_buffers[1].buffer + (4 - ((uint32_t) buffer2 & 0x03)));
-
-#else
-
-	output_buffers[0].buffer = (uint32_t*) buffers[0];
-	output_buffers[1].buffer = (uint32_t*) buffers[1];
-#endif  // AUDIO_ALLOC
 
 	play_buffer = &output_buffers[0];
 	update_buffer = &output_buffers[1];
@@ -112,7 +103,7 @@ bool PropAudio::begin(uint32_t fs, uint8_t bps)
 
 	onI2STxFinished();
 
-	if (!initCodec(fs, bps))
+	if (!initCodec())
 		return false;
 
 	delay(900);
@@ -145,7 +136,7 @@ void PropAudio::end()
 		// De-initialize SPI2
 		SPI_I2S_DeInit(SPI2);
 
-		deallocate();
+		deallocateOutputBuffers();
 
 		// Reset pins
 		// PB12, PB13, PB14, PB15 and PC6
@@ -160,16 +151,18 @@ void PropAudio::end()
 	}
 }
 
-#if AUDIO_ALLOC
-bool PropAudio::allocate()
+bool PropAudio::allocateOutputBuffers()
 {
-	// Min samples, on two channels, by bytes per sample + padding
-	uint32_t needed = MIN_OUTPUT_SAMPLES * 2 * (bits_per_sample / 8) + 16;
+	// Calculate output samples according to the target latency
+	output_samples = (TARGET_LATENCY_US * sample_rate) / 1000000;
+
+	// Allocate two stereo buffers (and padding)
+	uint32_t needed = output_samples * 2 * (bits_per_sample / 8) + 16;
 
 	if (buffer_size == needed)
 		return true;
 
-	deallocate();
+	deallocateOutputBuffers();
 
 	buffer1 = (uint8_t*) malloc(needed);
 	if (!buffer1)
@@ -186,7 +179,7 @@ bool PropAudio::allocate()
 	return true;
 }
 
-void PropAudio::deallocate()
+void PropAudio::deallocateOutputBuffers()
 {
 	if (buffer1)
 		free(buffer1);
@@ -198,9 +191,8 @@ void PropAudio::deallocate()
 	buffer1 = NULL;
 	buffer2 = NULL;
 }
-#endif // AUDIO_ALLOC
 
-bool PropAudio::initCodec(uint32_t fs, uint8_t bps)
+bool PropAudio::initCodec()
 {
 	// Configure mute pin
 	pinMode(AUDIO_MUTE, OUTPUT);
@@ -349,6 +341,7 @@ void PropAudio::update()
 	AudioSource* ptr = sources_list;
 	AudioSource* next;
 	AudioSource* mix_list = NULL;
+	UpdateResult result;
 
 	while (ptr)
 	{
@@ -356,15 +349,24 @@ void PropAudio::update()
 
 		if (ptr->playing())
 		{
-			if (!ptr->update())
+			result = ptr->update(output_samples);
+			switch (result)
 			{
-				ptr->stop();
-			} else {
-				if (ptr->getSamplesLeft())
-				{
-					ptr->setNextToMix(mix_list);
-					mix_list = ptr;
-				}
+				case SourceUpdated:
+					if (ptr->getSamplesLeft())
+					{
+						ptr->setNextToMix(mix_list);
+						mix_list = ptr;
+					}
+					break;
+
+				case SourceIdling:
+					break;
+
+				case SourceRemove:
+				case UpdateError:
+					ptr->stop();
+					break;
 			}
 		}
 
@@ -374,7 +376,7 @@ void PropAudio::update()
 	if (mix_list && !update_buffer->ready)
 	{
 		// We have an empty output buffer and samples to mix
-		update_buffer->buffer_samples = MIN_OUTPUT_SAMPLES;
+		update_buffer->buffer_samples = output_samples;
 		update_buffer->mixed_samples = 0;
 		if ((mix_callback)(update_buffer, mix_list))
 		{
@@ -487,7 +489,6 @@ void PropAudio::startOutput()
 bool PropAudio::mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources)
 {
 	AudioSource* source = sources;
-	uint32_t value;
 	uint32_t count;
 	uint32_t samples;
 	uint8_t* ptr;
@@ -608,6 +609,9 @@ bool PropAudio::mix16Multi(OUTPUT_BUFFER* buf, AudioSource* sources)
 bool PropAudio::mix24(OUTPUT_BUFFER* buf, AudioSource* pb)
 {
 	/* TBD */
+	UNUSED(buf);
+	UNUSED(pb);
+	return false;
 }
 
 bool PropAudio::checkSourceFormat(AudioSource* source)
