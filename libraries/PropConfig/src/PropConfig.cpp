@@ -31,6 +31,9 @@ PropConfig::PropConfig()
 	_backup_file = NULL;
 	_writable = false;
 	_file_name = NULL;
+	last_section_line = 0;
+	last_section_offs = 0;
+	section_locked = false;
 }
 
 PropConfig::~PropConfig()
@@ -79,6 +82,11 @@ bool PropConfig::replaceFileWithBackup()
 	if (f_open(&_file, _file_name, FA_OPEN_EXISTING | FA_READ) != FR_OK)
 		return false;
 
+	// Invalidate last read section name, offset and line
+	memset(last_section, 0x00, CONFIG_MAX_SECTION_LEN);
+	last_section_offs = 0;
+	last_section_line = 0;
+
 	return true;
 }
 
@@ -87,7 +95,19 @@ int32_t PropConfig::findSection(const char* section)
 {
 	int32_t line = 0;
 
-	f_lseek(&_file, 0);
+	// If section is the same as the last read section, jump to it
+	if (strlen(last_section) == strlen(section) &&
+		strncasecmp(last_section, section, strlen(last_section)) == 0)
+	{
+		if (f_lseek(&_file, last_section_offs) != FR_OK)
+			return -1;
+
+		return last_section_line;
+	}
+
+	// Otherwise scan the entire file
+	if (f_lseek(&_file, 0) != FR_OK)
+		return -1;
 
 	while (readLine(_line_buffer_rd))
 	{
@@ -101,7 +121,13 @@ int32_t PropConfig::findSection(const char* section)
 			if (strlen(section) == strlen(_line_buffer_rd))
 			{
 				if (strncasecmp(_line_buffer_rd, section, strlen(_line_buffer_rd)) == 0)
+				{
+					// Remember the last section name, offset and line
+					strncpy(last_section, section, CONFIG_MAX_SECTION_LEN);
+					last_section_offs = _file.fptr;
+					last_section_line = line;
 					return line;
+				}
 			}
 		}
 	}
@@ -116,7 +142,7 @@ bool PropConfig::sectionExists(const char* section)
 
 bool PropConfig::lineIsEmpty(char* line)
 {
-	if (*line == '\n')
+	if (*line == '\n' || *line == '\0')
 		return true;
 
 	if (*line == '\r' && *(line + 1) == '\n')
@@ -177,6 +203,7 @@ bool PropConfig::readLine(char* line)
 	uint32_t idx = 0;
 	UINT read;
 
+	// TODO come back with a better idea instead of this
 	while (idx < CONFIG_MAX_LINE_LEN)
 	{
 		if (f_read(&_file, &c, 1, &read) != FR_OK || read != 1)
@@ -219,15 +246,10 @@ bool PropConfig::lineIsCommentedOut(char* line)
 	return false;
 }
 
-bool PropConfig::isASCII(char c)
-{
-	return (c >= 0x21 && c <= 0x7E);
-}
-
 /*
  * This function checks for a valid section, that is:
  * - a string contained between [] characters
- * - cannot be of lenght = 0
+ * - cannot be of length = 0
  */
 bool PropConfig::getValidSection(char* line)
 {
@@ -255,6 +277,8 @@ bool PropConfig::getValidSection(char* line)
 		} else if (opener_found)
 		{
 			line[cpyidx++] = line[idx];
+			if (cpyidx == CONFIG_MAX_SECTION_LEN - 1)
+				return false;
 		}
 
 		idx++;
@@ -280,7 +304,7 @@ char* PropConfig::skipWhiteSpaceAndTabs(char* str)
 Checks if the line contains the wanted key and returns a pointer
 to the data string within the line.
 */
-char* PropConfig::verifyKey(const char* key, char* line)
+char* PropConfig::verifyKey(const char* key, char* line, char** key_name, uint32_t* key_name_len)
 {
 	uint32_t count = 0;
 	char* ptr;
@@ -318,28 +342,35 @@ char* PropConfig::verifyKey(const char* key, char* line)
 		ptr--;
 	}
 
-	if (count != strlen(key))
-		// Not our key
-		return NULL;
+	// If key is NULL we just want the pointer to the data
+	if (key)
+	{
+		if (count != strlen(key))
+			// Not our key
+			return NULL;
 
-	if (strncasecmp(key_ptr, key, count) != 0)
-		// Not our key
-		return NULL;
+		if (strncasecmp(key_ptr, key, count) != 0)
+			// Not our key
+			return NULL;
+	}
+
+	if (key_name)
+		*key_name = key_ptr;
+
+	if (key_name_len)
+		*key_name_len = count;
 
 	// Get the data
 	data_ptr = skipWhiteSpaceAndTabs(data_ptr);
 	return data_ptr;
 }
 
-bool PropConfig::readArray(const char* section, const char* key, void* values, uint8_t* count, DataType value_type)
+bool PropConfig::readArray(uint32_t token, void* values, uint8_t* count, DataType value_type)
 {
 	uint8_t idx = 0;
-	char* data = getKeyData(section, key);
+	char* data = (char*) token;
 	uint8_t value_size;
 	char* end;
-
-	if (!data)
-		return false;
 
 	if (!values || !count || *count == 0)
 		return false;
@@ -401,6 +432,16 @@ bool PropConfig::readArray(const char* section, const char* key, void* values, u
 
 	*count = idx;
 	return true;
+}
+
+bool PropConfig::readArray(const char* section, const char* key, void* values, uint8_t* count, DataType value_type)
+{
+	char* data = getKeyData(section, key);
+
+	if (!data)
+		return false;
+
+	return readArray((uint32_t) data, values, count, value_type);
 }
 
 bool PropConfig::writeKeyToBackup(const char* key, void* values, uint32_t count, DataType type)
@@ -467,6 +508,10 @@ bool PropConfig::writeValues(const char* section, const char* key, void* values,
 	int32_t line = 1;
 	bool done = false;
 
+	// Write is not allowed while locked into a section (for reading)
+	if (section_locked)
+		return false;
+
 	if (!createBackupFile())
 		return false;
 
@@ -529,14 +574,9 @@ bool PropConfig::writeValues(const char* section, const char* key, void* values,
 	return replaceFileWithBackup();
 }
 
-bool PropConfig::readValue(const char* section, const char* key, void* value, DataType value_type, uint32_t* len)
+bool PropConfig::readValue(uint32_t token, void* value, DataType value_type, uint32_t* len)
 {
-	if (!section || !key || !value)
-		return false;
-
-	char* data = getKeyData(section, key);
-	if (!data)
-		return false;
+	char* data = (char*) token;
 
 	switch (value_type)
 	{
@@ -569,12 +609,29 @@ bool PropConfig::readValue(const char* section, const char* key, void* value, Da
 			break;
 
 		case TypeString:
+		{
 			if (len == NULL || *len == 0)
 				return false;
 
-			strncpy((char*) value, data, *len);
-			*len = strlen((char*) value);
+			// Scan backwards and remove whitespace
+			uint32_t offs = strlen((char*) data);
+			char* str = data + offs;
+			while (offs)
+			{
+				str--;
+				if (*str == 0x20 || *str == 0x09)
+					offs--;
+				else break;
+			}
+
+			if (offs > *len)
+				offs = *len;
+
+			strncpy((char*) value, data, offs);
+			*(((char*) value) + offs) = '\0';
+			*len = offs;
 			break;
+		}
 
 		case TypeBool:
 			if (strcasecmp(data, "false") == 0 ||
@@ -599,6 +656,18 @@ bool PropConfig::readValue(const char* section, const char* key, void* value, Da
 	}
 
 	return true;
+}
+
+bool PropConfig::readValue(const char* section, const char* key, void* value, DataType value_type, uint32_t* len)
+{
+	if (section_locked || !section || !key || !value)
+		return false;
+
+	char* data = getKeyData(section, key);
+	if (!data)
+		return false;
+
+	return readValue((uint32_t) data, value, value_type, len);
 }
 
 bool PropConfig::writeLineToBackup(char* line)
@@ -638,6 +707,52 @@ bool PropConfig::begin(const char* path, bool writable)
 	}
 
 	return true;
+}
+
+bool PropConfig::startSectionScan(const char* section)
+{
+	if (section_locked)
+		return false;
+
+	int32_t line = findSection(section);
+	if (line > 0)
+	{
+		section_locked = true;
+		return true;
+	}
+
+	return false;
+}
+
+bool PropConfig::getNextKey(uint32_t* token, char** key, uint32_t* key_len)
+{
+	if (!section_locked || !token || !key || !key_len)
+		return NULL;
+
+	while (readLine(_line_buffer_rd))
+	{
+		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
+			continue;
+
+		if (getValidSection(_line_buffer_rd))
+			// Found another section while searching for a key, so ...
+			return false;
+
+		char* data = verifyKey(NULL, _line_buffer_rd, key, key_len);
+		if (data)
+		{
+			*token = (uint32_t) data;
+			return true;
+		}
+	}
+
+	// End of file or error
+	return false;
+}
+
+void PropConfig::endSectionScan()
+{
+	section_locked = false;
 }
 
 bool PropConfig::readValue(const char* section, const char* key, int8_t* value)
@@ -803,4 +918,84 @@ bool PropConfig:: writeArray(const char* section, const char* key, uint32_t* val
 bool PropConfig::writeArray(const char* section, const char* key, float* values, uint8_t count)
 {
 	return writeValues(section, key, values, count, TypeFloat);
+}
+
+bool PropConfig::readValue(uint32_t token, int8_t* value)
+{
+	return readValue(token, value, TypeSigned8);
+}
+
+bool PropConfig::readValue(uint32_t token, uint8_t* value)
+{
+	return readValue(token, value, TypeUnsigned8);
+}
+
+bool PropConfig::readValue(uint32_t token, int16_t* value)
+{
+	return readValue(token, value, TypeSigned16);
+}
+
+bool PropConfig::readValue(uint32_t token, uint16_t* value)
+{
+	return readValue(token, value, TypeUnsigned16);
+}
+
+bool PropConfig::readValue(uint32_t token, int32_t* value)
+{
+	return readValue(token, value, TypeSigned32);
+}
+
+bool PropConfig::readValue(uint32_t token, uint32_t* value)
+{
+	return readValue(token, value, TypeUnsigned32);
+}
+
+bool PropConfig::readValue(uint32_t token, char* value, uint32_t* len)
+{
+	return readValue(token, value, TypeString, len);
+}
+
+bool PropConfig::readValue(uint32_t token, float* value)
+{
+	return readValue(token, value, TypeFloat);
+}
+
+bool PropConfig::readValue(uint32_t token, bool* value)
+{
+	return readValue(token, value, TypeBool);
+}
+
+bool PropConfig::readArray(uint32_t token, int8_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeSigned8);
+}
+
+bool PropConfig::readArray(uint32_t token, uint8_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeUnsigned8);
+}
+
+bool PropConfig::readArray(uint32_t token, int16_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeSigned16);
+}
+
+bool PropConfig::readArray(uint32_t token, uint16_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeUnsigned16);
+}
+
+bool PropConfig::readArray(uint32_t token, int32_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeSigned32);
+}
+
+bool PropConfig::readArray(uint32_t token, uint32_t* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeUnsigned32);
+}
+
+bool PropConfig::readArray(uint32_t token, float* values, uint8_t* count)
+{
+	return readArray(token, values, count, TypeFloat);
 }
