@@ -31,6 +31,9 @@ int ff_cre_syncobj (	/* 1:Function succeeded, 0:Could not create the sync object
 	_SYNC_t *sobj		/* Pointer to return the created sync object */
 )
 {
+	(void)(vol);
+	(void)(sobj);
+
 	fs_free = 1;
 	*sobj = &fs_free;
 	return 1;
@@ -48,6 +51,7 @@ int ff_del_syncobj (	/* 1:Function succeeded, 0:Could not delete due to any erro
 	_SYNC_t sobj		/* Sync object tied to the logical drive to be deleted */
 )
 {
+	(void)(sobj);
 	return 1;
 }
 
@@ -64,6 +68,8 @@ int ff_req_grant (	/* 1:Got a grant to access the volume, 0:Could not get a gran
 	_SYNC_t sobj	/* Sync object to wait */
 )
 {
+	(void)(sobj);
+
 	while (fs_free == 0);
 	fs_free = 0;
 	return 1;
@@ -81,6 +87,8 @@ void ff_rel_grant (
 	_SYNC_t sobj	/* Sync object to be signaled */
 )
 {
+	(void)(sobj);
+
 	__disable_irq();
 
 	fs_free = 1;
