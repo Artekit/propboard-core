@@ -50,22 +50,16 @@ public:
 	bool playRandom(const char* filename, const char* ext, uint32_t min, uint32_t max, PlayMode mode = PlayModeNormal);
 	bool replay();
 	bool stop();
-	bool update();
+	UpdateResult update(uint32_t min_samples);
 	uint32_t duration() { return audio_file.getDuration(); }
-	void setVolume(float value);
 
 protected:
 
-	uint8_t* mixingStarts();
-
 	bool doPlay(PlayMode mode);
-	void changeVolume(bool gradually = true);
 
 	AudioFileHelper audio_file;
 	PlayMode play_mode;
 	uint32_t header_size;
-
-	float set_volume;
 };
 
 #endif /* __RAWPLAYER_H__ */
