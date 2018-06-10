@@ -31,9 +31,13 @@ PropConfig::PropConfig()
 	_backup_file = NULL;
 	_writable = false;
 	_file_name = NULL;
-	last_section_line = 0;
 	last_section_offs = 0;
 	section_locked = false;
+
+#ifdef CONFIG_USE_PRELOAD
+	preload_size = preload_offset = 0;
+#endif
+
 }
 
 PropConfig::~PropConfig()
@@ -85,130 +89,148 @@ bool PropConfig::replaceFileWithBackup()
 	// Invalidate last read section name, offset and line
 	memset(last_section, 0x00, CONFIG_MAX_SECTION_LEN);
 	last_section_offs = 0;
-	last_section_line = 0;
-
 	return true;
 }
 
 /* Finds a section and leaves the cursor at the first line within the section */
-int32_t PropConfig::findSection(const char* section)
+FindResult PropConfig::findSection(const char* section)
 {
-	int32_t line = 0;
-
 	// If section is the same as the last read section, jump to it
 	if (strlen(last_section) == strlen(section) &&
 		strncasecmp(last_section, section, strlen(last_section)) == 0)
 	{
-		if (f_lseek(&_file, last_section_offs) != FR_OK)
-			return -1;
+		if (!setFileRWPointer(last_section_offs))
+			return findError;
 
-		return last_section_line;
+		return sectionFound;
 	}
 
-	// Otherwise scan the entire file
-	if (f_lseek(&_file, 0) != FR_OK)
-		return -1;
+	// Otherwise scan the entire file. Start where we've left the file pointer.
+	uint32_t file_ptr = getFileRWPointer();
+	bool roll = false;
 
-	while (readLine(_line_buffer_rd))
+	while (true)
 	{
-		line++;
-
-		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
-			continue;
-
-		if (getValidSection(_line_buffer_rd))
+		if (!readLine(_line_buffer_rd))
 		{
-			if (strlen(section) == strlen(_line_buffer_rd))
+			if (!setFileRWPointer(0))
+				break;
+
+			roll = true;
+			continue;
+		}
+
+		if (roll && getFileRWPointer() >= file_ptr)
+			break;
+
+		char *file_sect;
+		if (parseLine(_line_buffer_rd, &file_sect, NULL, NULL, lineSection) == lineSection)
+		{
+			if (strlen(section) == strlen(file_sect))
 			{
-				if (strncasecmp(_line_buffer_rd, section, strlen(_line_buffer_rd)) == 0)
+				if (strncasecmp(file_sect, section, strlen(section)) == 0)
 				{
 					// Remember the last section name, offset and line
 					strncpy(last_section, section, CONFIG_MAX_SECTION_LEN);
-					last_section_offs = _file.fptr;
-					last_section_line = line;
-					return line;
+					last_section_offs = getFileRWPointer();
+					return sectionFound;
 				}
 			}
 		}
 	}
 
-	return -1;
+	return noSection;
 }
 
 bool PropConfig::sectionExists(const char* section)
 {
-	return (findSection(section) > 0);
+	return findSection(section) == sectionFound;
 }
 
-bool PropConfig::lineIsEmpty(char* line)
+FindResult PropConfig::findKey(const char* section, const char* key, char** key_data)
 {
-	if (*line == '\n' || *line == '\0')
-		return true;
-
-	if (*line == '\r' && *(line + 1) == '\n')
-		return true;
-	
-	return false;
-}
-
-bool PropConfig::findKey(const char* section, const char* key, int32_t* section_line, int32_t* key_line, char** key_data)
-{
-	int32_t line = findSection(section);
-
-	if (section_line)
-		*section_line = line;
-
-	if (line == -1)
-		return false;
+	FindResult res = findSection(section);
+	if (res != sectionFound)
+		return res;
 
 	while (readLine(_line_buffer_rd))
 	{
-		line++;
+		char *file_sect, *file_key, *file_data;
 
-		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
-			continue;
-
-		if (getValidSection(_line_buffer_rd))
-			// Found another section while searching for a key, so ...
-			break;
-
-		char* data = verifyKey(key, _line_buffer_rd);
-		if (data)
+		switch (parseLine(_line_buffer_rd, &file_sect, &file_key, &file_data, lineAny))
 		{
-			if (key_data)
-				*key_data = data;
+			case lineAny:
+			case lineEmpty:
+			case lineComment:
+			case lineGarbage:
+				continue;
 
-			if (key_line)
-				*key_line = line;
+			case lineKey:
+			case lineEmptyKey:
+				if (strlen(key) == strlen(file_key))
+				{
+					if (strncasecmp(key, file_key, strlen(key)) == 0)
+					{
+						if (key_data)
+							*key_data = file_data;
 
-			return true;
+						return keyFound;
+					}
+				}
+				continue;
+
+			case lineSection:
+				// Found another section while searching for a key, so ...
+				return noKey;
 		}
 	}
 
-	return false;
+	return noKey;
 }
 
 char* PropConfig::getKeyData(const char* section, const char* key)
 {
 	char *data;
-	if (findKey(section, key, NULL, NULL, &data))
+	if (findKey(section, key, &data) == keyFound)
 		return data;
 	
 	return NULL;
 }
 
+#ifdef CONFIG_USE_PRELOAD
+bool PropConfig::preload()
+{
+	UINT read;
+
+	if (f_read(&_file, &preload_buffer, CONFIG_PRELOAD_SIZE, &read) != FR_OK || read == 0)
+		return false;
+
+	preload_size = read;
+	preload_offset = 0;
+	return true;
+}
+#endif
+
 bool PropConfig::readLine(char* line)
 {
 	char c;
 	uint32_t idx = 0;
-	UINT read;
 
-	// TODO come back with a better idea instead of this
 	while (idx < CONFIG_MAX_LINE_LEN)
 	{
+#ifdef CONFIG_USE_PRELOAD
+		if (preload_offset == preload_size)
+		{
+			if (!preload())
+				return false;
+		}
+
+		c = preload_buffer[preload_offset++];
+#else
+		UINT read;
 		if (f_read(&_file, &c, 1, &read) != FR_OK || read != 1)
 			return false;
-		
+#endif
 		if (c == '\r' || c == '\0')
 			continue;
 		
@@ -228,141 +250,19 @@ bool PropConfig::readLine(char* line)
 	return true;
 }
 
-bool PropConfig::lineIsCommentedOut(char* line)
+void PropConfig::removeWhiteSpace(char* str)
 {
-	while (*line && (*line == 0x09 || *line == 0x20))
-		// Ignore tabs and spaces
-		line++;
+	char* dst = str;
 
-	if (*line == '\0')
-		return false;
-
-	if (*line == '#' || *line == ';')
-		return true;
-			
-	if (*line == '/' && *(line+1) == '/')
-		return true;
-
-	return false;
-}
-
-/*
- * This function checks for a valid section, that is:
- * - a string contained between [] characters
- * - cannot be of length = 0
- */
-bool PropConfig::getValidSection(char* line)
-{
-	uint32_t idx = 0;
-	uint32_t cpyidx = 0;
-	bool opener_found = false;
-	
-	while (idx < CONFIG_MAX_LINE_LEN && line[idx])
-	{
-		if (line[idx] == '[')
-		{
-			if (opener_found)
-				// Double '[' character not allowed
-				return false;
-			
-			opener_found = true;
-		} else if (line[idx] == ']')
-		{
-			// Closure without opener not allowed
-			if (!opener_found)
-				return false;
-			
-			line[cpyidx] = '\0';
-			return true;
-		} else if (opener_found)
-		{
-			line[cpyidx++] = line[idx];
-			if (cpyidx == CONFIG_MAX_SECTION_LEN - 1)
-				return false;
-		}
-
-		idx++;
-	}
-	
-	return false;
-}
-
-char* PropConfig::skipWhiteSpaceAndTabs(char* str)
-{
 	while (*str)
 	{
-		if (*str == 0x20 || *str == 0x09)
-			str++;
-		else
-			break;
+		if (*str != 0x20)
+			*(dst++) = *str;
+
+		str++;
 	}
 
-	return str;
-}
-
-/* 
-Checks if the line contains the wanted key and returns a pointer
-to the data string within the line.
-*/
-char* PropConfig::verifyKey(const char* key, char* line, char** key_name, uint32_t* key_name_len)
-{
-	uint32_t count = 0;
-	char* ptr;
-	char* data_ptr;
-	char* key_ptr;
-	
-	key_ptr = skipWhiteSpaceAndTabs(line);
-	if (!key_ptr)
-		return NULL;
-
-	ptr = key_ptr;
-
-	// Find  '='
-	while (*ptr)
-	{
-		if (*ptr == '=')
-			break;
-		ptr++;
-	}
-
-	if (!*ptr || ptr == key_ptr)
-		return NULL;
-
-	count = (uint32_t) ptr - (uint32_t) key_ptr;
-	data_ptr = ptr + 1;
-	ptr -= 1;
-
-	// Scan backwards and remove whitespace from the key length count
-	while (ptr != key_ptr)
-	{
-		if (*ptr == 0x20 || *ptr == 0x09)
-			count--;
-		else break;
-
-		ptr--;
-	}
-
-	// If key is NULL we just want the pointer to the data
-	if (key)
-	{
-		if (count != strlen(key))
-			// Not our key
-			return NULL;
-
-		if (strncasecmp(key_ptr, key, count) != 0)
-			// Not our key
-			return NULL;
-	}
-
-	if (key_name)
-		*key_name = key_ptr;
-
-	if (key_name_len)
-		*key_name_len = count;
-
-	// Get the data
-	data_ptr = skipWhiteSpaceAndTabs(data_ptr);
-	return data_ptr;
+	*dst = '\0';
 }
 
 bool PropConfig::readArray(uint32_t token, void* values, uint8_t* count, DataType value_type)
@@ -387,7 +287,12 @@ bool PropConfig::readArray(uint32_t token, void* values, uint8_t* count, DataTyp
 	memset(values, 0, value_size * *count);
 
 	if (strlen(data) == 0)
+	{
+		*count = 0;
 		return true;
+	}
+
+	removeWhiteSpace(data);
 
 	do
 	{
@@ -448,7 +353,7 @@ bool PropConfig::writeKeyToBackup(const char* key, void* values, uint32_t count,
 {
 	// Uses _line_buffer_rd as a helper array
 	int written = 0;
-	written = snprintf(_line_buffer_wr, CONFIG_MAX_LINE_LEN, "%s=", key);
+	written = snprintf(_line_buffer_wr, CONFIG_MAX_LINE_LEN, "%s = ", key);
 
 	while(count)
 	{
@@ -503,10 +408,8 @@ bool PropConfig::writeKeyToBackup(const char* key, void* values, uint32_t count,
 
 bool PropConfig::writeValues(const char* section, const char* key, void* values, uint32_t count, DataType type)
 {
-	int32_t section_line;
-	int32_t key_line;
-	int32_t line = 1;
 	bool done = false;
+	bool in_section = false;
 
 	// Write is not allowed while locked into a section (for reading)
 	if (section_locked)
@@ -515,60 +418,108 @@ bool PropConfig::writeValues(const char* section, const char* key, void* values,
 	if (!createBackupFile())
 		return false;
 
-	// Check if the section and key exist
-	findKey(section, key, &section_line, &key_line, NULL);
+	bool key_exists = false;
+	bool section_exists = false;
+	FindResult res = findKey(section, key, NULL);
+
+	if (res == keyFound)
+		key_exists = section_exists = true;
+	else if (res == sectionFound)
+		section_exists = true;
+	else if (res == findError)
+		return false;
 
 	// Start copying
-	f_lseek(&_file, 0);
-	while (readLine(_line_buffer_rd))
+	if (!setFileRWPointer(0))
+		return -1;
+
+	if (!section_exists)
 	{
-		if (!done)
+		// Just copy all, and add the section at the end
+		while (readLine(_line_buffer_rd))
 		{
-			// If the section exists
-			if (section_line != -1)
-			{
-				// If the key exists
-				if (line == key_line)
-				{
-					// The line we have just read is the line we need to update
-					if (!writeKeyToBackup(key, values, count, type))
-						return false;
-
-					done = true;
-					continue;
-				} else if (line == section_line && key_line == -1)
-				{
-					// The line we have just read is the start of the section
-					// we need to add the key
-
-					// Write the section
-					if (!writeLineToBackup(_line_buffer_rd))
-						return false;
-
-					// Add the key
-					if (!writeKeyToBackup(key, values, count, type))
-						return false;
-
-					done = true;
-					continue;
-				}
-			}
+			if (!writeLineToBackup(_line_buffer_rd))
+				return false;
 		}
 
-		writeLineToBackup(_line_buffer_rd);
-		line++;
-	}
-
-	if (!done && section_line == -1)
-	{
 		// End of file reached
-		// We have to write the new section and key
+		// We have to write the new section and the key
 		snprintf(_line_buffer_rd, CONFIG_MAX_LINE_LEN, "[%s]", section);
-		if (!writeLineToBackup(_line_buffer_rd))
+		if (!writeLineToBackup(_line_buffer_rd) ||
+			!writeKeyToBackup(key, values, count, type))
 			return false;
 
-		if (!writeKeyToBackup(key, values, count, type))
-			return false;
+	} else {
+		// Copy all while searching for the section
+		while (readLine(_line_buffer_rd))
+		{
+			if (done)
+			{
+				// Write the read line
+				if (!writeLineToBackup(_line_buffer_rd))
+					return false;
+
+				continue;
+			}
+
+			// Make a copy
+			strcpy(_line_buffer_wr, _line_buffer_rd);
+
+			// Parse the line
+			char *file_sect, *file_key, *file_data;
+			LineType line_type;
+
+			line_type = parseLine(_line_buffer_rd, &file_sect, &file_key, &file_data, lineAny);
+
+			// Check if we are inside the section we want to write
+			if (line_type == lineSection)
+			{
+				if (strlen(section) == strlen(file_sect))
+				{
+					if (strncasecmp(file_sect, section, strlen(section)) == 0)
+					{
+						in_section = true;
+
+						// If the key doesn't exist, add it here
+						if (!key_exists)
+						{
+							// Write the read line (copy)
+							if (!writeLineToBackup(_line_buffer_wr))
+								return false;
+
+							// Write the line to be replaced
+							if (!writeKeyToBackup(key, values, count, type))
+								return false;
+
+							done = true;
+							continue;
+						}
+					}
+				} else in_section = false;
+			} else if (in_section)
+			{
+				if (line_type == lineKey || line_type == lineEmptyKey)
+				{
+					// Found some key inside the section we want
+					if (strlen(key) == strlen(file_key))
+					{
+						if (strncasecmp(file_key, key, strlen(key)) == 0)
+						{
+							// This is the key/line we want to replace
+							if (!writeKeyToBackup(key, values, count, type))
+								return false;
+
+							done = true;
+							continue;
+						}
+					}
+				}
+			}
+
+			// Write the read line (copy)
+			if (!writeLineToBackup(_line_buffer_wr))
+				return false;
+		}
 	}
 
 	return replaceFileWithBackup();
@@ -615,21 +566,27 @@ bool PropConfig::readValue(uint32_t token, void* value, DataType value_type, uin
 
 			// Scan backwards and remove whitespace
 			uint32_t offs = strlen((char*) data);
-			char* str = data + offs;
-			while (offs)
+
+			if (!offs)
 			{
-				str--;
-				if (*str == 0x20 || *str == 0x09)
-					offs--;
-				else break;
+				*len = 0;
+			} else {
+				char* str = data + offs;
+				while (offs)
+				{
+					str--;
+					if (*str == 0x20 || *str == 0x09)
+						offs--;
+					else break;
+				}
+
+				if (offs > *len)
+					offs = *len;
+
+				strncpy((char*) value, data, offs);
+				*(((char*) value) + offs) = '\0';
+				*len = offs;
 			}
-
-			if (offs > *len)
-				offs = *len;
-
-			strncpy((char*) value, data, offs);
-			*(((char*) value) + offs) = '\0';
-			*len = offs;
 			break;
 		}
 
@@ -706,6 +663,10 @@ bool PropConfig::begin(const char* path, bool writable)
 		strcpy(_file_name, path);
 	}
 
+#ifdef CONFIG_USE_PRELOAD
+	preload_size = preload_offset = 0;
+#endif
+
 	return true;
 }
 
@@ -714,14 +675,25 @@ bool PropConfig::startSectionScan(const char* section)
 	if (section_locked)
 		return false;
 
-	int32_t line = findSection(section);
-	if (line > 0)
+	if (findSection(section) == sectionFound)
 	{
 		section_locked = true;
 		return true;
 	}
 
 	return false;
+}
+
+bool PropConfig::startSectionScan(uint32_t file_offset)
+{
+	if (section_locked)
+		return false;
+
+	if (!setFileRWPointer(file_offset))
+		return false;
+
+	section_locked = true;
+	return true;
 }
 
 bool PropConfig::getNextKey(uint32_t* token, char** key, uint32_t* key_len)
@@ -731,18 +703,30 @@ bool PropConfig::getNextKey(uint32_t* token, char** key, uint32_t* key_len)
 
 	while (readLine(_line_buffer_rd))
 	{
-		if (lineIsEmpty(_line_buffer_rd) || lineIsCommentedOut(_line_buffer_rd))
-			continue;
-
-		if (getValidSection(_line_buffer_rd))
-			// Found another section while searching for a key, so ...
-			return false;
-
-		char* data = verifyKey(NULL, _line_buffer_rd, key, key_len);
-		if (data)
+		char* section, *file_key, *data;
+		switch (parseLine(_line_buffer_rd, &section, &file_key, &data, lineAny))
 		{
-			*token = (uint32_t) data;
-			return true;
+			case lineKey:
+			case lineEmptyKey:
+				if (data)
+					*token = (uint32_t) data;
+
+				if (key)
+					*key = file_key;
+
+				if (key_len)
+					*key_len = strlen(file_key);
+				return true;
+
+			case lineAny:
+			case lineEmpty:
+			case lineComment:
+			case lineGarbage:
+				continue;
+
+			case lineSection:
+				// Found another section while searching for a key, so ...
+				return false;
 		}
 	}
 
@@ -998,4 +982,213 @@ bool PropConfig::readArray(uint32_t token, uint32_t* values, uint8_t* count)
 bool PropConfig::readArray(uint32_t token, float* values, uint8_t* count)
 {
 	return readArray(token, values, count, TypeFloat);
+}
+
+bool PropConfig::setFileRWPointer(uint32_t pos)
+{
+	if (f_lseek(&_file, pos) != FR_OK)
+		return false;
+
+#ifdef CONFIG_USE_PRELOAD
+	if (!preload())
+		return false;
+#endif
+
+	return true;
+}
+
+uint32_t PropConfig::getFileRWPointer()
+{
+	uint32_t file_ptr = f_tell(&_file);
+
+#ifdef CONFIG_USE_PRELOAD
+	if (file_ptr >= CONFIG_PRELOAD_SIZE)
+		file_ptr = (file_ptr - preload_size) + preload_offset;
+#endif
+
+	return file_ptr;
+}
+
+bool PropConfig::mapSections(configFileMapCallback* func, void* param)
+{
+	uint32_t section_start_offs = 0;
+	uint32_t data_start_offs;
+	char* section;
+
+	if (!func)
+		return false;
+
+	if (!setFileRWPointer(0))
+		return false;
+
+	while (true)
+	{
+		section_start_offs = getFileRWPointer();
+
+		if (!readLine(_line_buffer_rd))
+			return false;
+
+		if (parseLine(_line_buffer_rd, &section, NULL, NULL, lineSection) == lineSection)
+		{
+			data_start_offs = getFileRWPointer();
+			if ((func)(section_start_offs, data_start_offs, section, param) == false)
+				break;
+		}
+	}
+
+	return true;
+}
+
+LineType PropConfig::parseLine(char* line, char** section, char** key, char** data, LineType looking_for)
+{
+	// Parse a line. Use looking_for to search for a specific type. For example set it to
+	// lineSection when looking for sections and so avoid parsing things we're not
+	// interested in.
+	char* equal_at = NULL;
+
+	// Check for garbage/whitespace/comment
+	while (*line)
+	{
+		if (*line == '#' || (*line == '/' && *(line+1) == '/'))
+			return lineComment;
+
+		if (*line == '=')
+			return lineGarbage;
+
+		if (*line == '\r' || *line == '\n')
+			return lineEmpty;
+
+		if (*line != 0x20 && *line != 0x09)
+			break;
+
+		line++;
+	}
+
+	if (!*line)
+		return lineGarbage;
+
+	// Check for section
+	if (*line == '[')
+	{
+		if (looking_for != lineSection && looking_for != lineAny)
+			return lineGarbage;
+
+		// Section starts
+		line++;
+
+		// Scan for garbage and remove whitespace
+		while (*line)
+		{
+			if (*line == '#' || (*line == '/' && *(line+1) == '/') ||
+				*line == '\r' || *line == '\n' || *line == ']')
+				return lineGarbage;
+
+			if (*line != 0x20 && *line != 0x09)
+				break;
+
+			line++;
+		}
+
+		if (!*line)
+			return lineGarbage;
+
+		// Point section here
+		if (section)
+			*section = line;
+
+		// Find closure
+		while (*line)
+		{
+			if (*line == '#' || (*line == '/' && *(line+1) == '/') ||
+				*line == '\r' || *line == '\n')
+				return lineGarbage;
+
+			if (*line == ']')
+				break;
+
+			line++;
+		}
+
+		if (!*line)
+			return lineGarbage;
+
+		// Roll back finding whitespace
+		while (*(line-1) == 0x20 || *(line-1) == 0x09)
+			line--;
+
+		// Put a null char and return
+		*line = 0x00;
+		return lineSection;
+
+	} else {
+		if (looking_for != lineKey && looking_for != lineAny)
+			return lineGarbage;
+
+		// Should be key=data. Point key pointer here
+		if (key)
+			*key = line;
+
+		// Key starts
+		line++;
+
+		// Search for equal
+		while (*line)
+		{
+			if (*line == '#' || (*line == '/' && *(line+1) == '/') ||
+				*line == '\r' || *line == '\n' || *line == '[' || *line == ']')
+				return lineGarbage;
+
+			if (*line == '=')
+				break;
+
+			line++;
+		}
+
+		if (!*line)
+			return lineGarbage;
+
+		equal_at = line;
+
+		// Roll back finding whitespace
+		while (*(line-1) == 0x20 || *(line-1) == 0x09)
+			line--;
+
+		// Put a null char
+		*line = 0x00;
+
+		line = equal_at + 1;
+
+		// Remove whitespace after equal sign
+		while (*line)
+		{
+			if (*line == '#' || (*line == '/' && *(line+1) == '/'))
+				return lineGarbage;
+
+			if (*line != 0x20 && *line != 0x09)
+				break;
+
+			line++;
+		}
+
+		// Put data pointer here
+		if (data)
+			*data = line;
+
+		if (!*line)
+			return lineEmptyKey;
+
+		// Check for end of line
+		while (*line)
+			line++;
+
+		// Roll back finding whitespace
+		while (*(line-1) == 0x20 || *(line-1) == 0x09)
+			line--;
+
+		// Put a null char and return
+		*line = 0x00;
+		return lineKey;
+	}
+
+	return lineGarbage;
 }

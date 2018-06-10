@@ -32,6 +32,9 @@
 #define CONFIG_MAX_LINE_LEN		255
 #define CONFIG_MAX_SECTION_LEN	32
 
+#define CONFIG_USE_PRELOAD
+#define CONFIG_PRELOAD_SIZE		1024
+
 typedef enum
 {
 	TypeUnsigned8,
@@ -44,6 +47,29 @@ typedef enum
 	TypeString,
 	TypeBool,
 } DataType;
+
+typedef enum
+{
+	lineAny,
+	lineEmpty,
+	lineSection,
+	lineComment,
+	lineGarbage,
+	lineKey,
+	lineEmptyKey
+} LineType;
+
+typedef enum
+{
+	findError = -3,
+	noSection = -2,
+	noKey = -1,
+	keyFound = 0,
+	sectionFound = 1
+
+} FindResult;
+
+typedef bool (configFileMapCallback)(uint32_t, uint32_t, char*, void*);
 
 class PropConfig
 {
@@ -99,6 +125,7 @@ public:
 	bool readValue(uint32_t token, char* value, uint32_t* len);
 	bool readValue(uint32_t token, float* value);
 	bool readValue(uint32_t token, bool* value);
+	bool readValue(uint32_t token, void* value, DataType value_type, uint32_t* len = NULL);
 
 	bool readArray(uint32_t token, int8_t* values, uint8_t* count);
 	bool readArray(uint32_t token, uint8_t* values, uint8_t* count);
@@ -109,23 +136,23 @@ public:
 	bool readArray(uint32_t token, float* values, uint8_t* count);
 
 	bool startSectionScan(const char* section);
+	bool startSectionScan(uint32_t file_offset);
 	bool getNextKey(uint32_t* token, char** key, uint32_t* key_len);
 	void endSectionScan();
 	bool sectionExists(const char* section);
+	bool mapSections(configFileMapCallback* func, void* param = NULL);
 
-private:
+	uint32_t getFileRWPointer();
+	bool setFileRWPointer(uint32_t pos);
 
-	int32_t findSection(const char* section);
-	bool findKey(const char* section, const char* key, int32_t* section_line, int32_t* key_line, char** key_data);
-	char* verifyKey(const char* key, char* line, char** key_name = NULL, uint32_t* key_name_len = NULL);
+protected:
+
+	FindResult findSection(const char* section);
+	FindResult findKey(const char* section, const char* key, char** key_data);
 	char* getKeyData(const char* section, const char* key);
-	bool lineIsCommentedOut(char* line);
-	bool getValidSection(char* line);
-	bool lineIsEmpty(char* line);
 	bool createBackupFile();
 	bool replaceFileWithBackup();
 	bool readLine(char* line);
-	bool readValue(uint32_t token, void* value, DataType value_type, uint32_t* len = NULL);
 	bool readValue(const char* section, const char* key, void* value, DataType value_type, uint32_t* len = NULL);
 	bool readArray(uint32_t token, void* values, uint8_t* count, DataType value_type);
 	bool readArray(const char* section, const char* key, void* values, uint8_t* count, DataType value_type);
@@ -133,7 +160,8 @@ private:
 	bool writeLineToBackup(char* line);
 	bool writeKeyToBackup(const char* key, void* values, uint32_t count, DataType type);
 	bool copyToBackup(int32_t from, int32_t to);
-	char* skipWhiteSpaceAndTabs(char* str);
+	LineType parseLine(char* line, char** section, char** key, char** data, LineType looking_for);
+	void removeWhiteSpace(char* str);
 
 	FIL _file;
 	FIL *_backup_file;
@@ -143,8 +171,15 @@ private:
 	char* _file_name;
 	char last_section[CONFIG_MAX_SECTION_LEN];
 	uint32_t last_section_offs;
-	uint32_t last_section_line;
 	bool section_locked;
+
+#ifdef CONFIG_USE_PRELOAD
+	bool preload();
+	uint8_t preload_buffer[CONFIG_PRELOAD_SIZE];
+	uint32_t preload_size;
+	uint32_t preload_offset;
+#endif
+
 };
 
 #endif /* __PROPCONFIG_H__ */
