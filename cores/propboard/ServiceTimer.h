@@ -38,7 +38,7 @@ class STObject
 	friend void TIM1_TRG_COM_TIM11_IRQHandler(void);
 public:
 	STObject();
-	~STObject();
+	virtual ~STObject();
 
 protected:
 	void add();
