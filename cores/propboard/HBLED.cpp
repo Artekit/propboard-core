@@ -153,7 +153,12 @@ void deinitHBLEDHardware()
 
 HBLED::HBLED(uint8_t ch)
 {
+	HBLED();
 	channel = ch;
+}
+
+HBLED::HBLED()
+{
 	cc_reg = NULL;
 	max_current = 0;
 	pwm_percent = 0;
@@ -161,7 +166,7 @@ HBLED::HBLED(uint8_t ch)
 	initialized = false;
 	multiplier = 1;
 	last_value = 0;
-
+	channel = 0;
 #ifdef HBLED_BETA_SOFT_START
 	first_time = false;
 #endif
@@ -170,6 +175,12 @@ HBLED::HBLED(uint8_t ch)
 HBLED::~HBLED()
 {
 	end();
+}
+
+bool HBLED::begin(uint8_t ch, uint16_t current_mA)
+{
+	channel = ch;
+	return begin(current_mA);
 }
 
 bool HBLED::begin(uint16_t current_mA)
@@ -218,12 +229,15 @@ bool HBLED::begin(uint16_t current_mA)
 void HBLED::end()
 {
 
-	if (!hbled_ch_init[channel - 1])
-		return;
+	if (channel)
+	{
+		if (!hbled_ch_init[channel - 1])
+			return;
 
-	// Disable CC output
-	TIM5->CCER &= ~(1 << (channel - 1));
-	hbled_ch_init[channel - 1] = 0;
+		// Disable CC output
+		TIM5->CCER &= ~(1 << (channel - 1));
+		hbled_ch_init[channel - 1] = 0;
+	}
 
 	if (led_effect.active)
 		remove();
@@ -308,9 +322,13 @@ void HBLED::poll()
 		case LedEffectShimmer:
 			if (led_effect.params.shimmer.random)
 			{
-				led_effect.params.shimmer.value = getRandom(led_effect.params.shimmer.minimum, led_effect.params.shimmer.maximum);
+				if (++led_effect.tick_count == led_effect.ticks)
+				{
+					led_effect.tick_count = 0;
+					led_effect.params.shimmer.value = getRandom(led_effect.params.shimmer.minimum,
+																led_effect.params.shimmer.maximum);
+				}
 			} else {
-
 				if (led_effect.params.shimmer.up)
 				{
 					led_effect.params.shimmer.value += led_effect.params.shimmer.step;
@@ -335,10 +353,9 @@ void HBLED::poll()
 		case LedEffectFlash:
 
 			// Time to toggle the LED?
-			if (--led_effect.params.flash.ticks == 0)
+			if (++led_effect.tick_count == led_effect.ticks)
 			{
-				// Reload counter
-				led_effect.params.flash.ticks = led_effect.params.flash.reload;
+				led_effect.tick_count = 0;
 
 				// Check in the LED is OFF
 				if (!led_effect.params.flash.on)
@@ -443,20 +460,24 @@ void HBLED::shimmer(uint8_t lower, uint8_t upper, uint8_t hz, uint8_t random)
 
 	setValue(lower);
 
+	led_effect.type = LedEffectShimmer;
+	led_effect.params.shimmer.maximum = upper;
+	led_effect.params.shimmer.minimum = lower;
+	led_effect.params.shimmer.random = random;
+
 	if (!random)
 	{
 		ticks_in_cycle = getFrequency() / hz;
 		ticks_in_half_cycle = ticks_in_cycle / 2;
 		difference = upper - lower;
 		increment = (float) difference / (float) ticks_in_half_cycle;
-	}
 
-	led_effect.type = LedEffectShimmer;
-	led_effect.params.shimmer.step = increment;
-	led_effect.params.shimmer.maximum = upper;
-	led_effect.params.shimmer.minimum = lower;
-	led_effect.params.shimmer.random = random;
-	led_effect.params.shimmer.up = true;
+		led_effect.params.shimmer.step = increment;
+		led_effect.params.shimmer.up = true;
+	} else {
+		led_effect.ticks = getFrequency() / hz;
+		led_effect.tick_count = 0;
+	}
 
 	initial_value = getValue();
 	if (initial_value < led_effect.params.shimmer.minimum)
@@ -476,13 +497,13 @@ void HBLED::flash(uint8_t on, uint8_t off, uint8_t hz, uint32_t duration)
 	setValue(on);
 
 	led_effect.type = LedEffectFlash;
-	led_effect.params.flash.reload = ((getFrequency() / hz) / 2) + 1;
 	led_effect.params.flash.duration = duration * (1000 / getFrequency());
 	led_effect.params.flash.infinite = (duration == 0);
-	led_effect.params.flash.ticks = led_effect.params.flash.reload;
 	led_effect.params.flash.on = true;
 	led_effect.params.flash.on_value = on;
 	led_effect.params.flash.off_value = off;
+	led_effect.ticks = ((getFrequency() / hz) / 2) + 1;
+	led_effect.tick_count = 0;
 	led_effect.active = true;
 
 	add();

@@ -31,6 +31,7 @@
 #include "ServiceTimer.h"
 #include <variant.h>
 #include <ff.h>
+#include "bitmap.h"
 
 typedef enum
 {
@@ -60,10 +61,8 @@ typedef struct _hbled_effect
 		
 		struct
 		{
-			uint32_t reload;
 			uint32_t duration;
 			bool infinite;
-			uint32_t ticks;
 			bool on;
 			uint8_t on_value;
 			uint8_t off_value;
@@ -71,8 +70,8 @@ typedef struct _hbled_effect
 		
 		struct
 		{
-			uint32_t interval;
 			float step;
+			uint32_t interval;
 			uint32_t counter;
 			float value;
 			uint8_t end;
@@ -87,10 +86,12 @@ class HBLED : public STObject
 {
 public:
 		
+	HBLED();
 	HBLED(uint8_t ch);
 	~HBLED();
 
 	bool begin(uint16_t current_mA);
+	bool begin(uint8_t ch, uint16_t current_mA);
 	void end();
 	void setCurrent(uint16_t current_mA);
 	void setValue(uint8_t value);
