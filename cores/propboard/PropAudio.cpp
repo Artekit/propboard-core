@@ -29,11 +29,11 @@
 
 extern uint8_t fs_busy(void);
 
-volatile bool updating = false;
-volatile bool sdio_free = true;
-
 #define MIN(a,b) ((a) < (b) ? a : b)
 #define MAX(a,b) ((a) > (b) ? a : b)
+
+AUDIO_STAT(uint32_t mix_time);
+AUDIO_STAT(uint32_t mix_ticks);
 
 PropAudio::PropAudio()
 {
@@ -70,7 +70,7 @@ PropAudio::~PropAudio()
 {
 }
 
-bool PropAudio::begin(uint32_t fs, uint8_t bps)
+bool PropAudio::begin(uint32_t fs, uint8_t bps, bool async)
 {
 	if (initialized)
 		return true;
@@ -106,10 +106,13 @@ bool PropAudio::begin(uint32_t fs, uint8_t bps)
 	if (!initCodec())
 		return false;
 
-	delay(900);
+	if (!async)
+	{
+		delay(900);
 
-	if (!unmute())
-		return false;
+		if (!unmute())
+			return false;
+	}
 
 	initialized = true;
 	
@@ -331,17 +334,18 @@ bool PropAudio::initI2S(uint32_t fs, uint8_t bps)
 
 void PropAudio::triggerUpdate()
 {
-	AUDIO_STAT(update_tick = GetTickCount());
-	if ((SCB->SHCSR & SCB_SHCSR_PENDSVACT_Msk) == 0)
-		Activate_PendSV();
+	__disable_irq();
+	Activate_PendSV();
+	__enable_irq();
 }
 
 void PropAudio::update()
 {
 	AudioSource* ptr = sources_list;
 	AudioSource* next;
-	AudioSource* mix_list = NULL;
 	UpdateResult result;
+
+	AUDIO_STAT(update_tick = micros());
 
 	while (ptr)
 	{
@@ -349,33 +353,37 @@ void PropAudio::update()
 
 		if (ptr->playing())
 		{
-			result = ptr->update(output_samples);
-			switch (result)
-			{
-				case SourceUpdated:
-					if (ptr->getSamplesLeft())
-					{
-						ptr->setNextToMix(mix_list);
-						mix_list = ptr;
-					}
-					break;
-
-				case SourceIdling:
-					break;
-
-				case SourceRemove:
-				case UpdateError:
-					ptr->stop();
-					break;
-			}
+			result = ptr->update();
+			if (result == SourceRemove || result == UpdateError)
+				ptr->stop();
 		}
 
 		ptr = next;
 	}
 
-	if (mix_list && !update_buffer->ready)
+	AUDIO_STAT(update_time = micros() - update_tick);
+}
+
+void PropAudio::mix()
+{
+	AudioSource* ptr = sources_list;
+	AudioSource* mix_list = NULL;
+
+	update_buffer->ready = false;
+
+	while (ptr)
 	{
-		// We have an empty output buffer and samples to mix
+		if (ptr->playing())// && ptr->getSamplesLeft())
+		{
+			ptr->setNextToMix(mix_list);
+			mix_list = ptr;
+		}
+
+		ptr = ptr->getNextInList();
+	}
+
+	if (mix_list)
+	{
 		update_buffer->buffer_samples = output_samples;
 		update_buffer->mixed_samples = 0;
 		if ((mix_callback)(update_buffer, mix_list))
@@ -383,10 +391,11 @@ void PropAudio::update()
 			if (analyze_callback)
 				(analyze_callback)(update_buffer);
 
-			update_buffer->ready = true;
+			if (update_buffer->mixed_samples)
+				update_buffer->ready = true;
+			else
+				update_buffer->ready = false;
 		}
-
-		AUDIO_STAT(update_time = GetTickCount() - update_tick);
 	}
 }
 
@@ -401,9 +410,6 @@ void PropAudio::onI2STxFinished()
 		// Switch buffers
 		switchBuffers();
 
-		// Flag the update_buffer as non-ready
-		update_buffer->ready = false;
-		
 		AUDIO_STAT(if (idling && source_count && miss_start) miss_time = GetTickCount() - miss_start);
 		idling = false;
 	} else {
@@ -420,8 +426,8 @@ void PropAudio::onI2STxFinished()
 	// Send current playing buffer
 	startDMA(play_buffer);
 
-	// Load & mix more
-	triggerUpdate();
+	// Mix the updating buffer
+	mix();
 }
 
 void PropAudio::switchBuffers()
@@ -468,24 +474,6 @@ void PropAudio::setMixingFunction(audioMixCallback* mix)
 	__enable_irq();
 }
 
-void PropAudio::startOutput()
-{
-	// Update
-	update();
-
-	playing = true;
-	AUDIO_STAT(miss_count = 0);
-	AUDIO_STAT(update_time = 0);
-	AUDIO_STAT(update_tick = 0);
-	AUDIO_STAT(miss_start = 0);
-	AUDIO_STAT(miss_time = 0);
-	AUDIO_STAT(irq_interval = 0);
-	AUDIO_STAT(max_irq_interval = 0);
-
-	// Kickstart DMA
-	onI2STxFinished();
-}
-
 bool PropAudio::mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources)
 {
 	AudioSource* source = sources;
@@ -494,68 +482,65 @@ bool PropAudio::mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources)
 	uint8_t* ptr;
 	bool first_pass = true;
 
+	AUDIO_STAT(mix_ticks = micros());
+
 	while (source)
 	{
 		count = 0;
-		if (source->getSamplesLeft())
+		samples = source->mixingStarts(Audio.getOutputSamples());
+		samples = MIN(source->getSamplesLeft(), buf->buffer_samples);
+
+		if (!samples)
 		{
-			ptr = source->mixingStarts();
-			samples = MIN(source->getSamplesLeft(), buf->buffer_samples);
+			source->mixingEnded(0);
+			source = source->getNextToMix();
+			continue;
+		}
 
-			if (source->isStereo())
+		if (source->isStereo())
+		{
+			if (first_pass)
 			{
-				if (first_pass)
+				first_pass = false;
+				while (samples--)
+					buf->buffer[count++] = *(uint32_t*) source->getNextSamplePtr();
+			} else {
+				while (count < samples && count < buf->mixed_samples)
 				{
-					first_pass = false;
-					while (samples--)
-					{
-						buf->buffer[count++] = *(uint32_t*) ptr;
-						ptr = source->getRelativeDataPtr(ptr, 4);
-					}
-				} else {
-					while (count < samples && count < buf->mixed_samples)
-					{
-						buf->buffer[count] = __QADD16(buf->buffer[count], *((uint32_t*) ptr));
-						count++;
-						ptr = source->getRelativeDataPtr(ptr, 4);
-					}
+					ptr = (uint8_t*) source->getNextSamplePtr();
+					buf->buffer[count] = __QADD16(buf->buffer[count], *((uint32_t*) ptr));
+					count++;
+				}
 
-					while (count < samples)
-					{
-						buf->buffer[count] = *((uint32_t*) ptr);
-						count++;
-						ptr = source->getRelativeDataPtr(ptr, 4);
-					}
+				while (count < samples)
+					buf->buffer[count++] = *((uint32_t*) source->getNextSamplePtr());
+			}
+		} else {
+			if (first_pass)
+			{
+				first_pass = false;
+				while (samples--)
+				{
+					ptr = (uint8_t*) source->getNextSamplePtr();
+					buf->buffer[count++] = __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16);
 				}
 			} else {
-				if (first_pass)
+				while (count < samples && count < buf->mixed_samples)
 				{
-					first_pass = false;
-					while (samples--)
-					{
-						buf->buffer[count] = __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16);
-						count++;
-						ptr = source->getRelativeDataPtr(ptr, 2);
-					}
-				} else {
-					while (count < samples && count < buf->mixed_samples)
-					{
-						buf->buffer[count] = __QADD16(buf->buffer[count], __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16));
-						count++;
-						ptr = source->getRelativeDataPtr(ptr, 2);
-					}
+					ptr = (uint8_t*) source->getNextSamplePtr();
+					buf->buffer[count] = __QADD16(buf->buffer[count], __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16));
+					count++;
+				}
 
-					while (count < samples)
-					{
-						buf->buffer[count] = __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16);
-						count++;
-						ptr = source->getRelativeDataPtr(ptr, 2);
-					}
+				while (count < samples)
+				{
+					ptr = (uint8_t*) source->getNextSamplePtr();
+					buf->buffer[count++] = __PKHBT(*(uint16_t*) ptr, *(uint16_t*) ptr, 16);
 				}
 			}
-
-			source->mixingEnded(count);
 		}
+
+		source->mixingEnded(count);
 
 		if (buf->mixed_samples < count)
 			buf->mixed_samples = count;
@@ -563,46 +548,7 @@ bool PropAudio::mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources)
 		source = source->getNextToMix();
 	}
 
-	return true;
-}
-
-bool PropAudio::mix16Multi(OUTPUT_BUFFER* buf, AudioSource* sources)
-{
-	/* Function not used. To be removed */
-
-	AudioSource* source;
-	uint32_t value;
-	bool mixed;
-
-	while (buf->mixed_samples < buf->buffer_samples)
-	{
-		mixed = false;
-		value = 0;
-		source = sources;
-
-		while (source)
-		{
-			if (source->getSamplesLeft())
-			{
-				mixed = true;
-				if (source->isStereo())
-				{
-					value = __QADD16(value, *(uint32_t*) source->getReadPtr());
-				} else {
-					value = __QADD16(value, __PKHBT(*(uint16_t*) source->getReadPtr(),*(uint16_t*) source->getReadPtr(),16));
-				}
-
-				source->skip(1);
-			}
-			source = source->getNextToMix();
-		}
-
-		if (!mixed)
-			break;
-
-		buf->buffer[buf->mixed_samples++] = value;
-	}
-
+	AUDIO_STAT(mix_time = micros() - mix_ticks);
 	return true;
 }
 
@@ -745,6 +691,9 @@ void DMA1_Stream4_IRQHandler(void)
 
 void PendSV_Handler(void)
 {
+	// For now, this guards AudioSources that depend on the file system to update.
+	// TBD: move this calls to each type of AudioSource and return a coherent value indicating that
+	// the update is still pending.
 	if (fs_busy() || sdIsBusy())
 	{
 		Audio.update_pending = true;

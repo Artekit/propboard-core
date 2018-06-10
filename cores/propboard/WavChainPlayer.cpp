@@ -31,7 +31,7 @@
 
 WavChainPlayer::WavChainPlayer()
 {
-	chain_status = PlayingNone;
+	chained_status = PlayingNone;
 	status = AudioSourceStopped;
 	chained_mode = PlayModeNormal;
 }
@@ -42,77 +42,50 @@ WavChainPlayer::~WavChainPlayer()
 
 bool WavChainPlayer::begin(const char* filename)
 {
-	if (main_file.isOpened())
+	if (audio_file.isOpened())
 		return false;
 
-	if (!main_file.openWav(filename, true))
+	if (!audio_file.openWav(filename, true))
 		return false;
 
-	if (!AudioSource::begin(main_file.getWavHeader()->format.sample_rate,
-							main_file.getWavHeader()->format.bits_per_sample,
-							main_file.getWavHeader()->format.channels == 1))
+	if (!RawPlayer::begin(audio_file.getWavHeader()->format.sample_rate,
+						  audio_file.getWavHeader()->format.bits_per_sample,
+						  audio_file.getWavHeader()->format.channels == 1,
+						  audio_file.getHeaderSize()))
 	{
-		main_file.close();
+		audio_file.close();
 		return false;
 	}
 
-	samples_left = main_file.fillBuffer(buffer, buffer_size / sample_size);
-
-	if (samples_left < Audio.getOutputBufferSamples())
+	// Do fill buffers
+	if (refill())
 	{
-		main_file.close();
-		return false;
+		setChainedStatus(PlayingMain);
+		return true;
 	}
 
-	chain_status = PlayingMain;
-	return true;
+	audio_file.close();
+	return false;
 }
 
 bool WavChainPlayer::doChain(PlayMode mode)
 {
 	// Chained track must match main track
-	if (memcmp(&main_file.getWavHeader()->format,
+	if (memcmp(&audio_file.getWavHeader()->format,
 			   &chained_file.getWavHeader()->format,
-			   sizeof(WAV_FORMAT) != 0))
+			   sizeof(WAV_FORMAT)) != 0)
 		return false;
 
-	chained_mode = mode;
-
-	if (!chained.begin(chained_file.getWavHeader()->format.sample_rate,
-					   chained_file.getWavHeader()->format.bits_per_sample,
-					   chained_file.getWavHeader()->format.channels == 1))
-		return false;
-
-	chained.setSamplesLeft(chained_file.fillBuffer(chained.getBufferPtr(), chained.getBufferSize() / sample_size));
-
-	if (!chained.getSamplesLeft())
-		return false;
-
-	chain_status = PlayingChained;
-
-	if (playing())
-	{
-		setReadPtr(buffer);
-		main_file.rewind();
-		samples_left = main_file.fillBuffer(buffer, buffer_size / sample_size);
-
-		if (mode == PlayModeBlocking)
-			while (chain_status == PlayingChained);
-	}
-
-	return true;
+	return RawChainPlayer::doChain(mode);
 }
 
 bool WavChainPlayer::chain(const char* filename, PlayMode mode)
 {
-	if (!main_file.isOpened())
+	if (!audio_file.isOpened())
 		return false;
 
-	if (chain_status == PlayingChained)
-	{
-		chain_status = PlayingMain;
-		chained_file.close();
-	}
+	if (chained_status == PlayingChained)
+		setChainedStatus(PlayingMain);
 
 	if (!chained_file.openWav(filename, mode == PlayModeLoop))
 		return false;
@@ -128,12 +101,12 @@ bool WavChainPlayer::chain(const char* filename, PlayMode mode)
 
 bool WavChainPlayer::chainRandom(const char* filename, uint32_t min, uint32_t max, PlayMode mode)
 {
-	if (!main_file.isOpened())
+	if (!audio_file.isOpened())
 		return false;
 
-	if (chain_status == PlayingChained)
+	if (chained_status == PlayingChained)
 	{
-		chain_status = PlayingMain;
+		setChainedStatus(PlayingMain);
 		chained_file.close();
 	}
 

@@ -34,6 +34,7 @@ RawPlayer::RawPlayer()
 {
 	play_mode = PlayModeNormal;
 	header_size = 0;
+	update_requested = false;
 }
 
 RawPlayer::~RawPlayer()
@@ -42,74 +43,135 @@ RawPlayer::~RawPlayer()
 
 bool RawPlayer::begin(uint32_t fs, uint8_t bps, bool mono, uint32_t hdrsize)
 {
+	// Remember the header size
 	header_size = hdrsize;
-	return AudioSource::begin(fs, bps, mono);
+
+	// sample_size is calculated in here
+	AudioSource::begin(fs, bps, mono);
+
+	// TBD: get a proper buffer size
+	uint32_t samples = Audio.getOutputSamples() * 10 * (stereo ? 1 : 2);
+
+	return buffer.allocate(samples, sample_size);
 }
 
-UpdateResult RawPlayer::update(uint32_t min_samples)
+void RawPlayer::end()
 {
-	uint8_t* readptr;
+	buffer.deallocate();
+}
+
+uint32_t RawPlayer::getSamplesLeft()
+{
+	uint32_t samples = 0;
+
+	__disable_irq();
+	samples = buffer.getPlayingBuffer()->samples;
+	__enable_irq();
+
+	return samples;
+}
+
+UpdateResult RawPlayer::update(AudioFileHelper* file, playerBuffer* buffer)
+{
 	uint32_t samples_read = 0;
-	uint32_t samples_to_read = 0;
+	samplesBuffer* updating_buffer = buffer->getUpdatingBuffer();
 
-	// Update called with samples still in the buffer?
-	if (samples_left)
-	{
-		// Samples in the buffer are enough for another round?
-		if (samples_left >= min_samples)
-			// Yes, return SourceUpdated
-			return SourceUpdated;
+	if (updating_buffer->updated)
+		return SourceUpdated;
 
-		// Check if we have reached EOF
-		if (audio_file.eofReached())
-			// We may have reached the EOF, but we still have samples
-			// to play. Just return SourceUpdated.
-			return SourceUpdated;
+	// Read from file
+	samples_read = file->fillBuffer(updating_buffer->buffer, buffer->getBufferSamples());
 
-		// We are dealing with a Loop mode playback and the samples in the buffer are not enough to
-		// guarantee a constant output,so fill the buffer partially. With I2S-aligned buffers we
-		// shouldn't come here often (if ever).
-		readptr = getReadPtr() + (samples_left * sample_size);
-		samples_to_read = buffer_samples - samples_left;
-	} else {
-		// Check if we have reached EOF
-		if (audio_file.eofReached())
-			// EOF and no samples left.
-			// Return SourceRemove so Audio can remove this AudioSource from the list.
-			return SourceRemove;
-
-		// Otherwise read the entire buffer
-		readptr = buffer;
-		samples_to_read = buffer_samples;
-		setReadPtr(readptr);
-	}
-
-	samples_read = audio_file.fillBuffer(readptr, samples_to_read);
-
-	onNewData(readptr, samples_read);
-
-	if (!samples_read)
+	if ((!samples_read || samples_read != buffer->getBufferSamples()) && !file->eofReached())
+		// Something is wrong
 		return UpdateError;
 
-	samples_left += samples_read;
+	updating_buffer->samples = samples_read;
+	updating_buffer->readptr = updating_buffer->buffer;
+	updating_buffer->updated = true;
+
 	return SourceUpdated;
+}
+
+UpdateResult RawPlayer::update()
+{
+	// Check if we have reached EOF
+	if (audio_file.eofReached())
+		// Return SourceRemove so Audio can remove this AudioSource from the list.
+		return SourceRemove;
+
+	if (!update_requested)
+		return SourceUpdated;
+
+	update_requested = false;
+
+	UpdateResult result = update(&audio_file, &buffer);
+
+	if (result == SourceUpdated)
+	{
+		// Check the condition on which there is a very, very loaded system, and the playing_buffer
+		// ran out of samples while (from the mixingEnded function point of view) the
+		// updating_buffer is still to be updated.
+		samplesBuffer* playing_buffer = buffer.getPlayingBuffer();
+		if (!playing_buffer->samples && !playing_buffer->updated)
+		{
+			// Do the buffer switching here
+			buffer.switchBuffers();
+
+			// Request another update
+			update_requested = true;
+			Audio.triggerUpdate();
+		}
+	}
+
+	return result;
+}
+
+bool RawPlayer::refillBuffer(AudioFileHelper* file, samplesBuffer* buffer, uint32_t samples)
+{
+	uint32_t read_samples = file->fillBuffer(buffer->buffer, samples);
+
+	if (!read_samples)
+		return false;
+
+	buffer->samples = read_samples;
+	buffer->updated = true;
+	return true;
+}
+
+bool RawPlayer::refill(AudioFileHelper* file, playerBuffer* buffer)
+{
+	// Reset buffers
+	buffer->reset();
+
+	samplesBuffer* playing_buffer = buffer->getPlayingBuffer();
+	samplesBuffer* updating_buffer = buffer->getUpdatingBuffer();
+
+	// Fill both buffers
+	if (!refillBuffer(file, playing_buffer, buffer->getBufferSamples()))
+		return false;
+
+	if (playing_buffer->samples == buffer->getBufferSamples())
+		refillBuffer(file, updating_buffer, buffer->getBufferSamples());
+
+	return true;
+}
+
+bool RawPlayer::refill()
+{
+	if (refill(&audio_file, &buffer))
+		return true;
+
+	audio_file.close();
+	return false;
 }
 
 bool RawPlayer::doPlay(PlayMode mode)
 {
 	play_mode = mode;
 
-	setReadPtr(buffer);
-
-	samples_left = audio_file.fillBuffer(buffer, buffer_samples);
-
-	if (!samples_left)
-	{
-		audio_file.close();
+	if (!refill())
 		return false;
-	}
-
-	changeVolume();
 
 	if (!Audio.addSource(this))
 	{
@@ -136,12 +198,14 @@ bool RawPlayer::play(const char* filename, PlayMode mode)
 	return doPlay(mode);
 }
 
-bool RawPlayer::playRandom(const char* filename, const char* ext, uint32_t min, uint32_t max, PlayMode mode)
+bool RawPlayer::playRandom(const char* filename, const char* ext,
+						   uint32_t min, uint32_t max, PlayMode mode)
 {
 	if (status != AudioSourceStopped)
 		stop();
 
-	if (!audio_file.openRandomRaw(filename, ext, min, max, sample_size, header_size, mode == PlayModeLoop))
+	if (!audio_file.openRandomRaw(filename, ext, min, max, sample_size, header_size,
+								  mode == PlayModeLoop))
 		return false;
 
 	return doPlay(mode);
@@ -149,11 +213,10 @@ bool RawPlayer::playRandom(const char* filename, const char* ext, uint32_t min, 
 
 bool RawPlayer::replay()
 {
-	bool was_playing = false;
-
 	if (status == AudioSourceStopped)
 		return false;
 
+	bool was_playing = false;
 	if (status == AudioSourcePlaying)
 	{
 		pause();
@@ -163,13 +226,8 @@ bool RawPlayer::replay()
 	if (!audio_file.rewind())
 		return false;
 
-	samples_left = audio_file.fillBuffer(buffer, buffer_size / sample_size);
-	if (!samples_left)
+	if (!refill())
 		return false;
-
-	setReadPtr(buffer);
-
-	changeVolume();
 
 	if (was_playing)
 		status = AudioSourcePlaying;
@@ -186,4 +244,41 @@ bool RawPlayer::stop()
 		audio_file.close();
 
 	return true;
+}
+
+char* RawPlayer::getFileName()
+{
+	return audio_file.getFileName();
+}
+
+uint32_t RawPlayer::mixingStarts(uint32_t samples)
+{
+	if (buffer.getPlayingBuffer()->updated)
+	{
+		changeVolume(buffer.getPlayingBuffer()->readptr, samples);
+		samples = buffer.getPlayingBuffer()->samples;
+	}
+	else
+		samples = 0;
+
+	return samples;
+}
+
+void RawPlayer::mixingEnded(uint32_t samples)
+{
+	samplesBuffer* playing_buffer = buffer.getPlayingBuffer();
+
+	playing_buffer->samples -= samples;
+	if (!playing_buffer->samples)
+	{
+		playing_buffer->updated = false;
+
+		// Don't switch buffers if updating_buffer is not updated,
+		// since it may be still updating right now.
+		if (buffer.getUpdatingBuffer()->updated)
+			buffer.switchBuffers();
+
+		update_requested = true;
+		Audio.triggerUpdate();
+	}
 }

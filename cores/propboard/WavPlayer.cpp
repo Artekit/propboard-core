@@ -6,7 +6,7 @@
  * Copyright (c) 2017 Artekit Labs
  * https://www.artekit.eu
 
-### WavChainPlayer.h
+### WavPlayer.cpp
 
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -38,20 +38,6 @@ WavPlayer::~WavPlayer()
 {
 }
 
-bool WavPlayer::doPlay(PlayMode mode)
-{
-	if (!RawPlayer::begin(	audio_file.getWavHeader()->format.sample_rate,
-							audio_file.getWavHeader()->format.bits_per_sample,
-							audio_file.getWavHeader()->format.channels == 1,
-							audio_file.getHeaderSize()))
-	{
-		audio_file.close();
-		return false;
-	}
-
-	return RawPlayer::doPlay(mode);
-}
-
 bool WavPlayer::play(const char* filename, PlayMode mode)
 {
 	if (status != AudioSourceStopped)
@@ -60,7 +46,7 @@ bool WavPlayer::play(const char* filename, PlayMode mode)
 	if (!audio_file.openWav(filename, mode == PlayModeLoop))
 		return false;
 
-	return doPlay(mode);
+	return beginAndPlay(mode);
 }
 
 bool WavPlayer::playRandom(const char* filename, uint32_t min, uint32_t max, PlayMode mode)
@@ -71,5 +57,19 @@ bool WavPlayer::playRandom(const char* filename, uint32_t min, uint32_t max, Pla
 	if (!audio_file.openRandomWav(filename, min, max, mode == PlayModeLoop))
 		return false;
 
-	return doPlay(mode);
+	return beginAndPlay(mode);
+}
+
+bool WavPlayer::beginAndPlay(PlayMode mode)
+{
+	if (!RawPlayer::begin(audio_file.getWavHeader()->format.sample_rate,
+						  audio_file.getWavHeader()->format.bits_per_sample,
+						  audio_file.getWavHeader()->format.channels == 1,
+						  audio_file.getHeaderSize()))
+	{
+		audio_file.close();
+		return false;
+	}
+
+	return RawPlayer::doPlay(mode);
 }

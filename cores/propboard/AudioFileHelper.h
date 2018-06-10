@@ -72,12 +72,14 @@ public:
 	uint32_t getDuration(uint32_t fs = 0);
 	uint32_t getFileSize();
 	uint32_t getDataSize();
+	uint32_t getSamplesLeft();
 
 	inline bool eofReached() { return eof; }
 	inline bool isOpened() { return opened; }
 	inline WAV_HEADER* getWavHeader() { return &wav_header; }
 	inline uint32_t getHeaderSize() { return header_size; }
 	inline uint8_t getSampleSize() { return sample_size; }
+	inline char* getFileName() { return file_name; }
 
 private:
 	bool generateRandomFileName(const char* name, const char* ext, uint32_t min, uint32_t max);

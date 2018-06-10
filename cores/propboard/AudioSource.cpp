@@ -31,15 +31,10 @@
 
 AudioSource::AudioSource()
 {
-	buff_alloc = buffer = NULL;
 	stereo = false;
-	bits_per_sample = sample_rate = samples_left = sample_size = buffer_size = 0;
+	bits_per_sample = sample_rate = sample_size = 0;
 	next_to_mix = next_in_list = NULL;
-	update_callback = NULL;
-	update_callback_param = buff_alloc = read_ptr = NULL;
-	new_data_callback = NULL;
 	current_volume = 1.0f;
-
 	target_volume = current_volume;
 	target_volume_samples = 0;
 	target_volume_step = 0;
@@ -50,7 +45,7 @@ AudioSource::~AudioSource()
 	end();
 }
 
-bool AudioSource::begin(uint32_t fs, uint8_t bps, bool mono, UpdateCallback* callback, void* callback_param)
+bool AudioSource::begin(uint32_t fs, uint8_t bps, bool mono)
 {
 	if (status != AudioSourceStopped)
 		stop();
@@ -59,86 +54,12 @@ bool AudioSource::begin(uint32_t fs, uint8_t bps, bool mono, UpdateCallback* cal
 	bits_per_sample = bps;
 	stereo = !mono;
 	sample_size = (bits_per_sample / 8) * (stereo ? 2 : 1);
-
-	if (!allocateBuffer())
-		return false;
-
-	read_ptr = buffer;
-	update_callback = callback;
-	update_callback_param = callback_param;
 	return true;
 }
 
 void AudioSource::end()
 {
 	stop();
-	deallocateBuffer();
-}
-
-void AudioSource::skip(uint32_t samples)
-{
-	uint8_t* ptr = getReadPtr();
-	uint32_t offset;
-
-	if (samples > getSamplesLeft())
-		samples = getSamplesLeft();
-
-	offset = samples * sample_size;
-	ptr += offset;
-
-	setReadPtr(ptr);
-	setSamplesLeft(samples_left - samples);
-}
-
-bool AudioSource::allocateBuffer()
-{
-	// Ensure the buffer is aligned with the I2S buffers
-	uint32_t alloc_size = sample_size * Audio.getOutputBufferSamples() * 10;
-
-	if (alloc_size > MAX_UPDATE_BUFFER_SIZE)
-	{
-		// If alloc_size is greater than MAX_UPDATE_BUFFER_SIZE, allocate a buffer around
-		// MAX_UPDATE_BUFFER_SIZE
-		alloc_size = (MAX_UPDATE_BUFFER_SIZE / sample_size) / Audio.getOutputBufferSamples();
-		alloc_size = (alloc_size + 1) * Audio.getOutputBufferSamples() * sample_size;
-	}
-
-	if (buffer)
-	{
-		if (alloc_size == buffer_size)
-			return true;
-
-		free(buffer);
-	}
-
-	buff_alloc = (uint8_t*) malloc(alloc_size + 4);
-
-	if (!buff_alloc)
-		return false;
-
-	buffer = buff_alloc;
-
-	if ((uint32_t) buffer & 0x03)
-		buffer += (4 - ((uint32_t) buff_alloc & 0x03));
-
-	buffer_size = alloc_size;
-	buffer_samples = buffer_size / sample_size;
-	buffer_end = buffer + buffer_size;
-	return true;
-}
-
-bool AudioSource::deallocateBuffer()
-{
-	buffer_size = 0;
-	sample_size = 0;
-
-	if (buff_alloc)
-	{
-		free(buff_alloc);
-		read_ptr = buffer = buff_alloc = NULL;
-	}
-
-	return true;
 }
 
 bool AudioSource::play()
@@ -189,43 +110,13 @@ bool AudioSource::resume()
 	return false;
 }
 
-void AudioSource::onNewData(uint8_t* dataptr, uint32_t samples)
+void AudioSource::changeVolume(uint8_t* samples_ptr, uint32_t samples)
 {
-	if (new_data_callback)
-		(new_data_callback)(this, dataptr, samples);
-}
-
-void AudioSource::setNewDataCallback(newDataCallback* callback)
-{
-	__disable_irq();
-	new_data_callback = callback;
-	__enable_irq();
-}
-
-UpdateResult AudioSource::update(uint32_t min_samples)
-{
-	if (update_callback)
-		return (update_callback)(this, min_samples, update_callback_param);
-
-	return SourceIdling;
-}
-
-void AudioSource::changeVolume()
-{
-	if (target_volume == current_volume && current_volume == 1)
-		return;
-
 	// Only 16-bit audio is supported right now
-	if (bitsPerSample() != 16)
+	if ((target_volume == current_volume && current_volume == 1) || bitsPerSample() != 16)
 		return;
 
-	int16_t* ptr = (int16_t*) getReadPtr();
-	uint32_t samples = getSamplesLeft();
-
-	if (samples > Audio.getOutputBufferSamples())
-		samples = Audio.getOutputBufferSamples();
-	else if (!samples)
-		return;
+	int16_t* ptr = (int16_t*) samples_ptr;
 
 	if (isStereo())
 		samples *= 2;
@@ -243,6 +134,8 @@ void AudioSource::changeVolume()
 				break;
 			}
 
+			// Linear? that's bad.
+			// TODO: use logarithmic volume
 			*ptr = (int16_t)((float) *ptr * current_volume);
 			ptr++;
 			samples--;
@@ -276,19 +169,6 @@ void AudioSource::changeVolume()
 	}
 }
 
-uint8_t* AudioSource::mixingStarts()
-{
-	// About to mix this track. Change volume if required.
-	changeVolume();
-
-	return getReadPtr();
-}
-
-void AudioSource::mixingEnded(uint32_t samples)
-{
-	skip(samples);
-}
-
 void AudioSource::setVolume(float value)
 {
 	if (value == current_volume)
@@ -308,4 +188,14 @@ void AudioSource::setVolume(float value)
 		}
 		__enable_irq();
 	}
+}
+
+UpdateResult AudioSource::update()
+{
+	return UpdateError;
+}
+
+uint32_t AudioSource::getSamplesLeft()
+{
+	return 0;
 }

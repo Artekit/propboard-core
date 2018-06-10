@@ -35,7 +35,7 @@
 #define Activate_PendSV() SCB->ICSR = SCB->ICSR | SCB_ICSR_PENDSVSET_Msk
 
 #ifndef AUDIO_STATS
-#define AUDIO_STATS		1
+#define AUDIO_STATS		0
 #endif
 
 #if AUDIO_STATS
@@ -44,7 +44,7 @@
 #define AUDIO_STAT(x)
 #endif // AUDIO_STATS
 
-#define TARGET_LATENCY_US		5000
+#define TARGET_LATENCY_US		1000
 #define MAX_OUTPUT_BUFFERS		2
 
 typedef struct _output_buffer
@@ -76,7 +76,7 @@ class PropAudio
 public:
 	~PropAudio();
 
-	bool begin(uint32_t fs = 22050, uint8_t bps = 16);
+	bool begin(uint32_t fs = 22050, uint8_t bps = 16, bool async = false);
 	void end();
 	bool addSource(AudioSource* source);
 	bool removeSource(AudioSource* source);
@@ -88,7 +88,8 @@ public:
 	void triggerUpdate();
 	void setAnalyzeCallback(audioAnalyzeCallback* analyze);
 	void setMixingFunction(audioMixCallback* mix);
-	inline uint32_t getOutputBufferSamples() { return output_samples; }
+	inline uint32_t getOutputSamples() { return output_samples; }
+	inline uint32_t getSampleRate() { return sample_rate; }
 
 	static PropAudio& instance()
 	{
@@ -103,17 +104,15 @@ public:
 protected:
 	PropAudio();
 	void update();
+	void mix();
 	void onI2STxFinished();
 	bool initI2S(uint32_t fs, uint8_t bps);
 	bool initCodec();
-	void startOutput();
 
 	bool checkSourceFormat(AudioSource* source);
 	inline void switchBuffers();
 	inline void startDMA(OUTPUT_BUFFER* output_buffer);
-	static bool mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources);
-	static bool mix16Multi(OUTPUT_BUFFER* buf, AudioSource* sources);
-	static bool mix16Dual(OUTPUT_BUFFER* buf, AudioSource* sources);
+	static bool mix16Multipass(OUTPUT_BUFFER* buf, AudioSource* sources) __attribute__ ((optimize(3)));
 	static bool mix24(OUTPUT_BUFFER* buf, AudioSource* sources);
 
 	bool allocateOutputBuffers();

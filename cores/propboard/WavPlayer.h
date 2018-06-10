@@ -44,7 +44,7 @@ public:
 
 protected:
 
-	bool doPlay(PlayMode mode);
+	bool beginAndPlay(PlayMode mode);
 };
 
 #endif /* __WAVPLAYER_H__ */

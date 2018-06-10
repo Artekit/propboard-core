@@ -28,6 +28,7 @@
 #define __RAWCHAINPLAYER_H__
 
 #include "WavPlayer.h"
+#include "RawPlayer.h"
 
 enum ChainPlayStatus
 {
@@ -37,7 +38,15 @@ enum ChainPlayStatus
 	PlayingTransition,
 };
 
-class RawChainPlayer : public AudioSource
+class RawChained : public RawPlayer
+{
+	uint32_t fillThisBuffer(uint8_t* buffer, uint32_t samples)
+	{
+		return audio_file.fillBuffer(buffer, samples);
+	}
+};
+
+class RawChainPlayer : public RawPlayer
 {
 public:
 	RawChainPlayer();
@@ -48,27 +57,30 @@ public:
 	bool chainRandom(const char* filename, const char* ext, uint32_t min, uint32_t max, PlayMode mode = PlayModeNormal);
 	bool play();
 	bool stop();
-	UpdateResult update(uint32_t min_samples);
+	UpdateResult update();
 	bool restart();
-	void skip(uint32_t samples);
 
 	uint32_t getChainedDuration();
-	inline ChainPlayStatus getChainStatus() { return chain_status; }
-	inline bool playingChained() { return (chain_status == PlayingChained || chain_status == PlayingTransition); }
-	uint8_t* getReadPtr();
+	inline ChainPlayStatus getChainStatus() { return chained_status; }
+	inline bool playingChained() { return (chained_status == PlayingChained ||
+										   chained_status == PlayingTransition); }
+	char* getChainedFileName();
+	void* getNextSamplePtr();
+	uint32_t getSamplesLeft();
 
 protected:
 	bool doChain(PlayMode mode);
-	UpdateResult update(AudioSource* src, AudioFileHelper* wav, uint32_t min_samples);
-	uint32_t getSamplesLeft();
-	void skipMainTrack(uint32_t samples);
+	uint32_t mixingStarts(uint32_t samples);
+	void mixingEnded(uint32_t samples);
+	void setChainedStatus(ChainPlayStatus status);
 
-	AudioFileHelper main_file;
+	playerBuffer* active_buffer;
+
+	playerBuffer chained_buffer;
 	AudioFileHelper chained_file;
-	uint32_t header_size;
-	AudioSource chained;
 	PlayMode chained_mode;
-	volatile ChainPlayStatus chain_status;
+	volatile ChainPlayStatus chained_status;
+	bool chained_update_requested;
 };
 
 #endif /* __RAWCHAINPLAYER_H__ */

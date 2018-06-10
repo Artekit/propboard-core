@@ -56,9 +56,6 @@ enum UpdateResult
 class AudioSource;
 class PropAudio;
 
-typedef UpdateResult (UpdateCallback)(AudioSource*, uint32_t min_samples, void*);
-typedef void (newDataCallback)(AudioSource*, uint8_t*, uint32_t);
-
 class AudioSource
 {
 	friend class PropAudio;
@@ -67,47 +64,31 @@ public:
 	AudioSource();
 	virtual ~AudioSource();
 
-	bool begin(uint32_t fs, uint8_t bps, bool mono, UpdateCallback* callback = NULL, void* callback_param = NULL);
+	bool begin(uint32_t fs, uint8_t bps, bool mono);
 	void end();
 
 	virtual bool play();
 	virtual bool stop();
 	virtual bool pause();
 	virtual bool resume();
-	virtual UpdateResult update(uint32_t min_samples);
-	virtual void skip(uint32_t samples);
-	virtual inline uint8_t* getBufferPtr() { return buffer; }
-	virtual inline uint8_t* getReadPtr() { return read_ptr; }
-	virtual inline void setReadPtr(uint8_t* ptr) { read_ptr = ptr; }
-	virtual inline uint32_t getSamplesLeft() { return samples_left; }
-	virtual inline uint32_t getBufferSize() { return buffer_size; }
-	virtual inline bool isStereo() { return stereo; }
-	virtual inline uint32_t sampleRate() { return sample_rate; }
-	virtual inline uint8_t bitsPerSample() { return bits_per_sample; }
-	virtual inline AudioSourceStatus getStatus() { return status; }
-	virtual inline bool playing() { return status == AudioSourcePlaying; }
-	virtual inline uint32_t getSampleSize() { return sample_size; }
-	virtual inline void setSamplesLeft(uint32_t samples) { samples_left = samples; }
+	virtual UpdateResult update();
+	virtual uint32_t getSamplesLeft();
+	virtual inline void* getNextSamplePtr()			{ return NULL; }
+	virtual inline bool isStereo() 					{ return stereo; }
+	virtual inline uint32_t sampleRate() 			{ return sample_rate; }
+	virtual inline uint8_t bitsPerSample() 			{ return bits_per_sample; }
+	virtual inline AudioSourceStatus getStatus() 	{ return status; }
+	virtual inline bool playing() 					{ return status == AudioSourcePlaying; }
+	virtual inline uint32_t getSampleSize() 		{ return sample_size; }
+	virtual inline float getVolume() 				{ return current_volume; }
 	virtual void setVolume(float value);
-	virtual inline float getVolume() { return current_volume; }
-	virtual bool setPitch(float value);
-	virtual inline uint8_t* getRelativeDataPtr(uint8_t* ptr, uint32_t offset)
-	{
-		return ptr + offset;
-	}
-
-	void setNewDataCallback(newDataCallback* callback);
 
 protected:
 	
-	bool allocateBuffer();
-	bool deallocateBuffer();
-	void onNewData(uint8_t* dataptr, uint32_t samples);
-	void changeVolume();
-	void changePitch();
+	void changeVolume(uint8_t* samples_ptr, uint32_t samples);
 	
-	virtual uint8_t* mixingStarts();
-	virtual void mixingEnded(uint32_t samples);
+	virtual uint32_t mixingStarts(uint32_t samples) = 0;
+	virtual void mixingEnded(uint32_t samples) = 0;
 
 	inline void setNextToMix(AudioSource* next) { next_to_mix = next; }
 	inline AudioSource* getNextToMix() { return next_to_mix; }
@@ -117,28 +98,14 @@ protected:
 	bool stereo;
 	uint8_t bits_per_sample;
 	uint32_t sample_rate;
-	uint32_t samples_left;
 	uint8_t sample_size;
-	uint32_t buffer_size;
-	uint32_t buffer_samples;
-	uint8_t* buffer_end;
-
 	float current_volume;
 	float target_volume;
 	float target_volume_step;
 	uint32_t target_volume_samples;
-
-	uint8_t* buffer;
-	uint8_t* buff_alloc;
-
-	uint8_t* read_ptr;
-
 	volatile AudioSourceStatus status;
 
 private:
-	newDataCallback* new_data_callback;
-	UpdateCallback* update_callback;
-	void* update_callback_param;
 	AudioSource* next_to_mix;
 	AudioSource* next_in_list;
 };

@@ -39,7 +39,7 @@ AudioFileHelper::AudioFileHelper()
 	eof = false;
 	sample_size = 0;
 	opened = false;
-	last_random = 0xFFFFFFF;
+	last_random = 0xFFFFFFFF;
 	header_size = 0;
 	is_raw = false;
 	data_end = 0;
@@ -145,7 +145,6 @@ bool AudioFileHelper::openWav(const char* name, bool infinite)
 	infinite_mode = infinite;
 	eof = false;
 	strcpy(file_name, name);
-
 	return true;
 }
 
@@ -211,6 +210,19 @@ bool AudioFileHelper::rewind()
 	return true;
 }
 
+uint32_t AudioFileHelper::getSamplesLeft()
+{
+	uint32_t bytes;
+
+	if (!opened || eof)
+		return 0;
+
+	// data_end holds the location in the file where samples data ends
+	// If data_end == 0, then sample data ends at EOF
+	bytes = getFileSize() - file.fptr - data_end;
+	return (bytes / sample_size);
+}
+
 uint32_t AudioFileHelper::fillBuffer(uint8_t* buffer, uint32_t samples)
 {
 	uint32_t to_read;
@@ -232,7 +244,7 @@ uint32_t AudioFileHelper::fillBuffer(uint8_t* buffer, uint32_t samples)
 
 	samples_read = read / sample_size;
 
-	if (read != to_read)
+	if (read != to_read || (data_end && file.fptr >= data_end))
 	{
 		// EOF
 		if (!infinite_mode)
@@ -245,12 +257,15 @@ uint32_t AudioFileHelper::fillBuffer(uint8_t* buffer, uint32_t samples)
 				return 0;
 
 			to_read -= read;
-			buffer += read;
 
-			if (f_read(&file, buffer, to_read, &read) != FR_OK)
-				return 0;
+			if (to_read)
+			{
+				buffer += read;
+				if (f_read(&file, buffer, to_read, &read) != FR_OK)
+					return 0;
 
-			samples_read += read / sample_size;
+				samples_read += read / sample_size;
+			}
 		}
 	}
 
@@ -261,12 +276,25 @@ bool AudioFileHelper::generateRandomFileName(const char* name, const char* ext, 
 {
 	uint32_t num;
 
-	srand(GetTickCount());
-
-	do
+	if (min == max)
 	{
-		num = getRandom(min, max);
-	} while (num == last_random && min != max);
+		num = min;
+	} else {
+		if (min > max)
+		{
+			// Move along
+			uint32_t tmp = min;
+			min = max;
+			max = tmp;
+		}
+
+		while (true)
+		{
+			num = getRandom(min, max);
+			if (num != last_random)
+				break;
+		}
+	}
 
 	last_random = num;
 
@@ -316,7 +344,7 @@ uint32_t AudioFileHelper::getDataSize()
 	{
 		size = getFileSize();
 		if (size)
-			return size - header_size;
+			return size - header_size - data_end;
 		else
 			return 0;
 	} else {
