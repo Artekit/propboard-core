@@ -27,7 +27,133 @@
 #ifndef __BITMAP_H__
 #define __BITMAP_H__
 
-typedef uint32_t COLOR;
+extern uint32_t getRandom(uint32_t min, uint32_t max);
+
+class COLOR
+{
+public:
+	COLOR() :
+		r(0), g(0), b(0), w(0)
+	{
+	}
+
+	COLOR(uint32_t color) :
+		r(color & 0xFF),
+		g((color >> 8) & 0xFF),
+		b((color >> 16) & 0xFF),
+		w((color >> 24) & 0xFF)
+	{
+	}
+
+	COLOR(uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0) :
+		r(r), g(g), b(b), w(w)
+	{
+	}
+
+	void operator= (const uint32_t color)
+	{
+		r = (color & 0xFF);
+		g = ((color >> 8) & 0xFF);
+		b = ((color >> 16) & 0xFF);
+		w = ((color >> 24) & 0xFF);
+	}
+
+	COLOR operator* (float val)
+	{
+		if (val > 1)
+			val = 1;
+		else if (val < 0)
+			val = 0;
+
+		COLOR color = COLOR(r * val, g * val, b * val, w * val);
+		return color;
+	}
+
+	inline void operator*= (float value)
+	{
+		*this = *this * value;
+	}
+
+	inline bool operator== (const COLOR& color)
+	{
+		return (color.r == r && color.g == g && color.b == b && color.w == w);
+	}
+
+	inline bool operator!= (const COLOR& color)
+	{
+		if (color.r != r || color.g != g || color.b != b || color.w != w)
+			return true;
+		return false;
+	}
+
+	inline bool operator!= (const uint32_t color)
+	{
+		COLOR match(color);
+
+		if (match.r != r || match.g != g || match.b != b || match.w != w)
+			return true;
+		return false;
+	}
+
+	inline bool operator! ()
+	{
+		return !notBlack();
+	}
+
+	inline bool notBlack() const
+	{
+		return (r || g || b || w);
+	}
+
+	inline uint32_t toInt() const
+	{
+		return (r | ((uint32_t) g << 8) | ((uint32_t) b << 16) | ((uint32_t) w << 24));
+	}
+
+	COLOR blend(COLOR& top, COLOR& bottom, float alpha_top)
+	{
+		uint32_t r, g, b, w;
+
+		if (alpha_top > 1)
+			alpha_top = 1;
+		else if (alpha_top < 0)
+			alpha_top = 0;
+
+		r = (uint32_t) (top.r * alpha_top) + (uint32_t) (bottom.r * (1 - alpha_top));
+		g = (uint32_t) (top.g * alpha_top) + (uint32_t) (bottom.g * (1 - alpha_top));
+		b = (uint32_t) (top.b * alpha_top) + (uint32_t) (bottom.b * (1 - alpha_top));
+		w = (uint32_t) (top.w * alpha_top) + (uint32_t) (bottom.w * (1 - alpha_top));
+
+		return COLOR(r,g,b,w);
+	}
+
+	void blend(const COLOR& other, float amount)
+	{
+		if (amount > 1)
+			amount = 1;
+		else if (amount < 0)
+			amount = 0;
+
+		r = (uint32_t) (other.r * amount) + (uint32_t) (r * (1 - amount));
+		g = (uint32_t) (other.g * amount) + (uint32_t) (g * (1 - amount));
+		b = (uint32_t) (other.b * amount) + (uint32_t) (b * (1 - amount));
+		w = (uint32_t) (other.w * amount) + (uint32_t) (w * (1 - amount));
+	}
+
+	void blend(const COLOR& other, uint8_t amount)
+	{
+		if (amount > 100)
+			amount = 100;
+
+		float val = amount / 100;
+
+		blend(other, val);
+	}
+
+	uint8_t r, g, b, w;
+};
+
+COLOR randomColor();
 
 /* CIE table generated using Jared Sanson's cie1931.py
  * from http://jared.geek.nz/2013/feb/linear-led-pwm
@@ -61,12 +187,12 @@ static const uint8_t cie_lut[256] = {
 	242, 245, 247, 250, 252, 255,
 };
 
-#define RGB(r,g,b) 		((COLOR) (r | ((uint32_t) g << 8) | ((uint32_t) b << 16)))
-#define RGBW(r,g,b,w)	((COLOR) (r | ((uint32_t) g << 8) | ((uint32_t) b << 16) | ((uint32_t) w << 24)))
-#define getRed(color)  	(color & 0xFF)
-#define getGreen(color)	((color >> 8) & 0xFF)
-#define getBlue(color)	((color >> 16) & 0xFF)
-#define getWhite(color)	((color >> 24) & 0xFF)
+#define RGB(r,g,b) 		(COLOR(r,g,b))
+#define RGBW(r,g,b,w)	(COLOR(r,g,b,w))
+#define getRed(color)  	(color.r)
+#define getGreen(color)	(color.g)
+#define getBlue(color)	(color.b)
+#define getWhite(color)	(color.w)
 
 #define MAX_RGB_LINE_WIDTH	1920
 

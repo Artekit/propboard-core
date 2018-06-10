@@ -30,6 +30,11 @@ COLOR alphaBlend(COLOR top, COLOR bottom, float alpha_top)
 {
 	uint32_t r, g, b, w;
 
+	if (alpha_top > 1)
+		alpha_top = 1;
+	else if (alpha_top < 0)
+		alpha_top = 0;
+
 	r = (uint32_t) (getRed(top) * alpha_top) + (uint32_t) (getRed(bottom) * (1 - alpha_top));
 	g = (uint32_t) (getGreen(top) * alpha_top) + (uint32_t) (getGreen(bottom) * (1 - alpha_top));
 	b = (uint32_t) (getBlue(top) * alpha_top) + (uint32_t) (getBlue(bottom) * (1 - alpha_top));
@@ -37,3 +42,9 @@ COLOR alphaBlend(COLOR top, COLOR bottom, float alpha_top)
 
 	return RGBW(r,g,b,w);
 }
+
+COLOR randomColor()
+{
+	return COLOR(getRandom(0,255), getRandom(0,255), getRandom(0,255), getRandom(0,255));
+}
+
