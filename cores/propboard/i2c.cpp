@@ -113,28 +113,26 @@ void I2C::initialize()
 			break;
 
 		case I2C2_BASE:
-			// Enable clock
-			RCC->APB1ENR |= RCC_APB1ENR_I2C2EN;
-			RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
-
 			I2C_DeInit(I2C2);
 
-			// Configure pins
-			GPIOB->BSRRL = GPIO_Pin_3;
-			GPIOB->BSRRL = GPIO_Pin_10;
+			// Enable clock
+			RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
 
 			GPIO_InitStruct.GPIO_Pin = GPIO_Pin_3 | GPIO_Pin_10;
+			GPIO_InitStruct.GPIO_OType = GPIO_OType_OD;
+			GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;
+			GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_UP;
+			GPIO_InitStruct.GPIO_Speed = GPIO_Low_Speed;
 			GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-			// Start I2C2
-			I2C_Init(I2C2, &I2C_InitStruct);
 
 			GPIO_PinAFConfig(GPIOB, GPIO_PinSource10, GPIO_AF_I2C2);
-			GPIO_PinAFConfig(GPIOB, GPIO_PinSource3, GPIO_AF_I2C2);
+			GPIO_PinAFConfig(GPIOB, GPIO_PinSource3, GPIO_AF9_I2C2);
 
-			GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;
-			GPIO_InitStruct.GPIO_OType = GPIO_OType_OD;
-			GPIO_Init(GPIOB, &GPIO_InitStruct);
+			delay(50);
+
+			RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C2, ENABLE);
+			I2C_Init(I2C2, &I2C_InitStruct);
+			I2C_Cmd(I2C2, ENABLE);
 
 			initialized = true;
 			break;
