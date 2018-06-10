@@ -308,6 +308,7 @@ SD_Status sdWriteBlocks(uint32_t sector, const uint8_t* buffer, uint32_t count);
 uint8_t sdIsBusy();
 void enableSdDebug(UARTClass* uart);
 void disableSdDebug();
+bool sdPresent();
 
 #if SD_STATS
 #include "UARTClass.h"

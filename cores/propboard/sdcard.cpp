@@ -138,7 +138,7 @@ static volatile uint32_t sd_busy_count = 0;
 static volatile bool sd_sdio_transfer_complete = false;
 static volatile bool sd_transfer_error = false;
 static volatile bool sd_cmd_irq_flag = false;
-static SD_Status sd_transfer_error_code = SD_NO_ERROR;
+static volatile SD_Status sd_transfer_error_code = SD_NO_ERROR;
 
 #if SD_STATS
 uint32_t sd_errors = 0;
@@ -166,6 +166,9 @@ volatile uint32_t sd_sta = 0;
 
 static UARTClass* uart_debug = NULL;
 static volatile bool debug_enabled = false;
+
+static SD_Status sdTransferBlocksWithDMA(uint32_t sector, const uint8_t* buffer, uint32_t count, bool write) __attribute__ ((optimize(3)));
+static SD_Status sdGetR1Response(uint8_t cmd) __attribute__ ((optimize(3)));
 
 void enableSdDebug(UARTClass* uart)
 {
@@ -216,6 +219,7 @@ static const char* getErrorString(SD_Status code)
 		case SD_FIFO_ERROR: return "SD_FIFO_ERROR";
 		case SD_BUSY: return "SD_BUSY";
 		case SD_ERROR: return "SD_ERROR";
+		case SD_NO_ERROR: return "SD_NO_ERROR";
 	}
 
 	return "Unknown error code";
@@ -242,6 +246,9 @@ static void printError(const char* function, SD_Status code, const char* extra)
 
 static void printErrorRWOp(bool write, SD_Status code, uint32_t sector, uint32_t count, uint32_t retries, const char* msg)
 {
+	if (!debug_enabled)
+		return;
+
 	uart_debug->print("SdDebug: error \"");
 	uart_debug->print(getErrorString(code));
 	if (write)
@@ -459,7 +466,7 @@ static SD_Status sdGetR7Response(void)
 static SD_Status sdGetR1Response(uint8_t cmd)
 {
 	uint32_t r1;
-	uint32_t sta;
+	volatile uint32_t sta;
 
 	/* It's simpler to use the register here, instead of the ST function */
 	do
@@ -831,7 +838,9 @@ static SD_Status sdStartAndSelect(void)
 
 	status = sdGetR1Response(CMD_SEL_DESEL_CARD);
 	if (status)
+	{
 		printError("sdStartAndSelect", status, "sdGetR1Response(CMD_SEL_DESEL_CARD)");
+	}
 
 	return status;
 }
@@ -876,7 +885,9 @@ static SD_Status sdSet4BitsMode(void)
 
 	status = sdGetR1Response(CMD_SET_BLOCKLEN);
 	if (status)
+	{
 		printError("sdSet4BitsMode", status, "sdGetR1Response(CMD_SET_BLOCKLEN)");
+	}
 
 	return status;
 }
@@ -1384,15 +1395,19 @@ static SD_Status sdTransferBlocksWithDMA(uint32_t sector, const uint8_t* buffer,
 		SDIO->MASK = SDIO_MASK_DATAENDIE | SDIO_MASK_DTIMEOUTIE | SDIO_MASK_TXUNDERRIE |
 					 SDIO_MASK_DCRCFAILIE | SDIO_MASK_RXOVERRIE;
 
-		if (write)
-			sd_transfer_error_code = sdSendBlockTxCmd(sector, (count > 1));
-		else
+		if (!write)
+		{
+			SDIO->DCTRL = SDIO_DCTRL_DMAEN | SDIO_DataBlockSize_512b | SDIO_TransferMode_Block | SDIO_DPSM_Enable | SDIO_TransferDir_ToSDIO;
 			sd_transfer_error_code = sdSendBlockRxCmd(sector, (count > 1));
+		} else {
+			sd_transfer_error_code = sdSendBlockTxCmd(sector, (count > 1));
+		}
 
 		if (sd_transfer_error_code != SD_NO_ERROR)
 		{
 			printErrorRWOp(write, sd_transfer_error_code, sector, count, retries, "Send block cmd");
 			SD_STAT(sd_errors++);
+			SDIO->DCTRL = 0;
 			sdAbortTransmission(count > 1);
 			retries--;
 			continue;
@@ -1400,8 +1415,6 @@ static SD_Status sdTransferBlocksWithDMA(uint32_t sector, const uint8_t* buffer,
 
 		if (write)
 			SDIO->DCTRL = SDIO_DCTRL_DMAEN | SDIO_DataBlockSize_512b | SDIO_TransferMode_Block | SDIO_DPSM_Enable | SDIO_TransferDir_ToCard;
-		else
-			SDIO->DCTRL = SDIO_DCTRL_DMAEN | SDIO_DataBlockSize_512b | SDIO_TransferMode_Block | SDIO_DPSM_Enable | SDIO_TransferDir_ToSDIO;
 
 		ticks = GetTickCount();
 		while (!sd_sdio_transfer_complete)
