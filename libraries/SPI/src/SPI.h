@@ -43,6 +43,13 @@
 #define SPI_MODE2 0x02
 #define SPI_MODE3 0x03
 
+typedef enum _spiInitMode
+{
+	SPI_NORMAL,
+	SPI_MOSI_ONLY,
+	SPI_MOSI_CLK_ONLY
+} spiInitMode;
+
 typedef void(SPICallback)();
 
 class SPISettings
@@ -99,19 +106,18 @@ public:
 	void setCallback(SPICallback* function);
 
 	// Special functions for the LedStrip class
-	void beginTxOnly();
-	void endTxOnly();
-
+	void beginTxOnly(bool with_clock);
 	inline bool isInitialized() { return initialized; }
 private:
-	void begin(bool tx_only);
+	void begin(spiInitMode mode);
 	void maskInterrupts();
 	void unmaskInterrupts();
 
 	SPICallback* callback;
-	uint8_t initialized;
-	uint8_t initialized_tx_only;
+	bool initialized;
 	uint32_t irq_mask;
+
+	spiInitMode init_mode;
 };
 
 extern SPIClass SPI;

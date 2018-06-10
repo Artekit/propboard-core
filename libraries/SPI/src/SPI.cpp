@@ -31,15 +31,16 @@ SPIClass SPI;
 SPIClass::SPIClass()
 {
 	callback = NULL;
-	initialized_tx_only = initialized = 0;
+	initialized = false;
 	irq_mask = 0;
+	init_mode = SPI_NORMAL;
 }
 
 SPIClass::~SPIClass()
 {
 }
 
-void SPIClass::begin(bool tx_only)
+void SPIClass::begin(spiInitMode mode)
 {
 	GPIO_InitTypeDef GPIO_InitStruct;
 	SPI_InitTypeDef SPI_InitStruct;
@@ -57,25 +58,33 @@ void SPIClass::begin(bool tx_only)
 
 	GPIO_PinAFConfig(GPIOB, GPIO_PinSource5, GPIO_AF_SPI1);
 
-	if (!tx_only)
+	switch (mode)
 	{
-		// CLK = PA5
-		GPIO_Init(GPIOA, &GPIO_InitStruct);
+		case SPI_NORMAL:
+			// MISO = PA6
+			GPIO_InitStruct.GPIO_Pin = GPIO_Pin_6;
+			GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IN;
+			GPIO_Init(GPIOA, &GPIO_InitStruct);
+			GPIO_PinAFConfig(GPIOA, GPIO_PinSource6, GPIO_AF_SPI1);
+			/* no break */
 
-		// MISO = PA6
-		GPIO_InitStruct.GPIO_Pin = GPIO_Pin_6;
-		GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IN;
-		GPIO_Init(GPIOA, &GPIO_InitStruct);
+		case SPI_MOSI_CLK_ONLY:
+			// CLK = PA5
+			GPIO_InitStruct.GPIO_Pin = GPIO_Pin_5;
+			GPIO_InitStruct.GPIO_Mode = GPIO_Mode_AF;
+			GPIO_Init(GPIOA, &GPIO_InitStruct);
+			GPIO_PinAFConfig(GPIOA, GPIO_PinSource5, GPIO_AF_SPI1);
+			/* no break */
 
-		GPIO_PinAFConfig(GPIOA, GPIO_PinSource5, GPIO_AF_SPI1);
-		GPIO_PinAFConfig(GPIOA, GPIO_PinSource6, GPIO_AF_SPI1);
+		case SPI_MOSI_ONLY:
+			break;
 	}
 
 	SPI_InitStruct.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_32;
 	SPI_InitStruct.SPI_CPHA = SPI_CPHA_2Edge;
 	SPI_InitStruct.SPI_CPOL = SPI_CPOL_Low;
 	SPI_InitStruct.SPI_DataSize = SPI_DataSize_8b;
-	SPI_InitStruct.SPI_Direction = tx_only ? SPI_Direction_1Line_Tx : SPI_Direction_2Lines_FullDuplex;
+	SPI_InitStruct.SPI_Direction = (mode == SPI_NORMAL) ? SPI_Direction_2Lines_FullDuplex : SPI_Direction_1Line_Tx;
 	SPI_InitStruct.SPI_FirstBit = SPI_FirstBit_MSB;
 	SPI_InitStruct.SPI_Mode = SPI_Mode_Master;
 	SPI_InitStruct.SPI_NSS = SPI_NSS_Soft;
@@ -86,79 +95,54 @@ void SPIClass::begin(bool tx_only)
 
 void SPIClass::begin()
 {
-	if (!initialized)
-		begin(false);
+	if (initialized)
+		end();
 
-	initialized++;
+	begin(SPI_NORMAL);
+	init_mode = SPI_NORMAL;
+	initialized = true;
 }
 
-void SPIClass::beginTxOnly()
+void SPIClass::beginTxOnly(bool with_clock)
 {
-	if (!initialized_tx_only && !initialized)
-		begin(true);
+	if (initialized)
+		end();
 
-	RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_DMA2, ENABLE);
-	initialized_tx_only++;
+	init_mode = with_clock ? SPI_MOSI_CLK_ONLY : SPI_MOSI_ONLY;
+	begin(init_mode);
+	initialized = true;
 }
 
 void SPIClass::end()
 {
 	GPIO_InitTypeDef GPIO_InitStruct;
 
-	if (initialized > 1)
-	{
-		--initialized;
+	if (!initialized)
 		return;
-	}
 
-	// CLK = PA5
-	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_5;
+	SPI_Cmd(SPI1, DISABLE);
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, DISABLE);
+
 	GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IN;
 	GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_NOPULL;
-	GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-	// MISO = PA6
-	GPIO_InitStruct.GPIO_Pin = GPIO_Pin_6;
-	GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-	if (initialized_tx_only)
+	switch(init_mode)
 	{
-		// Leave SPI activated with MOSI pin only
-	} else {
-		// Deactivate SPI and MOSI
-		GPIO_InitStruct.GPIO_Pin = GPIO_Pin_5;
-		GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-		SPI_Cmd(SPI1, DISABLE);
-		RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, DISABLE);
+		case SPI_NORMAL:
+			// MISO
+			GPIO_InitStruct.GPIO_Pin = GPIO_Pin_6;
+			GPIO_Init(GPIOA, &GPIO_InitStruct);
+			/* no break */
+		case SPI_MOSI_CLK_ONLY:
+			// CLK
+			GPIO_InitStruct.GPIO_Pin = GPIO_Pin_5;
+			GPIO_Init(GPIOA, &GPIO_InitStruct);
+			/* no break */
+		case SPI_MOSI_ONLY:
+			break;
 	}
 
-	initialized = 0;
-}
-
-void SPIClass::endTxOnly()
-{
-	GPIO_InitTypeDef GPIO_InitStruct;
-
-	if (initialized_tx_only > 1)
-	{
-		initialized_tx_only--;
-		return;
-	}
-
-	if (!initialized)
-	{
-		// MOSI = PB5
-		GPIO_InitStruct.GPIO_Pin = GPIO_Pin_5;
-		GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IN;
-		GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_NOPULL;
-		GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-		SPI_Cmd(SPI1, DISABLE);
-		RCC_APB2PeriphClockCmd(RCC_APB2Periph_SPI1, DISABLE);
-	}
-
-	initialized_tx_only = 0;
+	initialized = false;
 }
 
 void SPIClass::usingInterrupt(uint8_t interruptNumber)
@@ -223,7 +207,12 @@ uint16_t SPIClass::transfer16(uint16_t data)
 		return 0;
 
 	SPI1->DR = data;
-	while (!(SPI1->SR & SPI_SR_RXNE));
+
+	if (init_mode == SPI_NORMAL)
+		while (!(SPI1->SR & SPI_SR_RXNE));
+	else
+		while (!(SPI1->SR & SPI_SR_TXE));
+
 	return SPI1->DR;
 }
 
@@ -240,7 +229,7 @@ void SPIClass::transfer(void *buf, size_t count)
 
 void SPIClass::endTransaction(void)
 {
-	SPI1->CR1 &= ~SPI_CR1_SPE;
+	// SPI1->CR1 &= ~SPI_CR1_SPE;
 
 	if (irq_mask)
 		unmaskInterrupts();
@@ -296,4 +285,8 @@ void SPIClass::setCallback(SPICallback* function)
 {
 	if (!initialized)
 		return;
+
+	__disable_irq();
+	callback = function;
+	__enable_irq();
 }
