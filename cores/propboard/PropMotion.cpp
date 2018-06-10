@@ -34,6 +34,8 @@ PropMotion::PropMotion()
 	_x = _y = _z = 0;
 	saved_scale = 0;
 	initialized = false;
+	callback_params[0] = callback_params[1] = NULL;
+	callbacks[0] = callbacks[1] = NULL;
 }
 
 PropMotion::~PropMotion()
@@ -604,6 +606,50 @@ bool PropMotion::attachInterrupt(MotionInterrupt irq, MotionInterruptCallback* c
 	return true;
 }
 
+bool PropMotion::attachInterruptWithParam(MotionInterrupt irq,
+										  MotionInterruptCallbackWithParam* callback,
+										  void* param)
+{
+	uint32_t pin;
+	MotionInterruptCallbackWithParam** callback_ptr;
+	void** callback_param_ptr;
+	MotionInterruptCallback* stub_ptr;
+
+	switch (irq)
+	{
+		case MotionInterrupt1:
+			pin = ACC_IRQ1;
+			callback_ptr = &callbacks[0];
+			callback_param_ptr = &callback_params[0];
+			stub_ptr = PropMotion::interrup1Stub;
+			break;
+
+		case MotionInterrupt2:
+			pin = ACC_IRQ2;
+			callback_ptr = &callbacks[1];
+			callback_param_ptr = &callback_params[1];
+			stub_ptr = PropMotion::interrup2Stub;
+			break;
+
+		default:
+			return false;
+	}
+
+	if (!callback)
+	{
+		detachInterrupt(pin);
+	} else {
+		__disable_irq();
+		*callback_ptr = callback;
+		*callback_param_ptr = param;
+		__enable_irq();
+
+		::attachInterrupt(pin, stub_ptr, FALLING);
+	}
+
+	return true;
+}
+
 bool PropMotion::enableSensorInterrupt(uint8_t interrupt, MotionInterrupt irq_pin)
 {
 	uint8_t reg;
@@ -681,6 +727,9 @@ uint8_t PropMotion::getTransientSource()
 
 	if (!(reg & MotionDetected))
 		return 0;
+
+	// Remove EA
+	reg &= 0x3F;
 
 	return reg;
 }
@@ -772,4 +821,20 @@ bool PropMotion::read(int16_t* x, int16_t* y, int16_t* z)
 	*z = _z;
 
 	return true;
+}
+
+void PropMotion::interrup1Stub()
+{
+	if (Motion.callbacks[0] != NULL)
+	{
+		Motion.callbacks[0](Motion.callback_params[0]);
+	}
+}
+
+void PropMotion::interrup2Stub()
+{
+	if (Motion.callbacks[1] != NULL)
+	{
+		Motion.callbacks[1](Motion.callback_params[1]);
+	}
 }

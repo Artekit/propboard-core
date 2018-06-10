@@ -119,6 +119,7 @@ typedef enum
 } MotionInterrupt;
 
 typedef void (MotionInterruptCallback)();
+typedef void (MotionInterruptCallbackWithParam)(void*);
 
 extern "C" void EXTI9_5_IRQHandler();
 
@@ -146,6 +147,7 @@ public:
 
 	// Interrupt handling
 	bool attachInterrupt(MotionInterrupt irq, MotionInterruptCallback* callback);
+	bool attachInterruptWithParam(MotionInterrupt irq, MotionInterruptCallbackWithParam* callback, void* param);
 	MotionEvent getInterruptSource();
 
 	// Event polling
@@ -176,11 +178,16 @@ private:
 	bool enableSensorInterrupt(uint8_t interrupt, MotionInterrupt irq_pin);
 	bool disableSensorInterrupt(uint8_t interrupt);
 
-	MotionInterruptCallback* callbacks[2];
 	float fx, fy, fz;
 	int16_t _x, _y, _z;
 	uint32_t saved_scale;
 	bool initialized;
+
+	MotionInterruptCallbackWithParam* callbacks[2];
+	void* callback_params[2];
+
+	static void interrup1Stub();
+	static void interrup2Stub();
 };
 
 extern PropMotion Motion;
