@@ -20,7 +20,7 @@
 
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
-
+#include <string.h>
 
 /*--------------------------------------------------------------------------
 
@@ -679,6 +679,8 @@ void st_qword (BYTE* ptr, QWORD val)	/* Store an 8-byte word in little-endian */
 /*-----------------------------------------------------------------------*/
 
 /* Copy memory to memory */
+#define mem_cpy(x,y,z) memcpy(x,y,z)
+/*
 static
 void mem_cpy (void* dst, const void* src, UINT cnt) {
 	BYTE *d = (BYTE*)dst;
@@ -688,18 +690,25 @@ void mem_cpy (void* dst, const void* src, UINT cnt) {
 		do *d++ = *s++; while (--cnt);
 	}
 }
+*/
 
 /* Fill memory block */
+#define mem_set(x,y,z) memset(x,y,z)
+
+/*
 static
 void mem_set (void* dst, int val, UINT cnt) {
 	BYTE *d = (BYTE*)dst;
 
 	do *d++ = (BYTE)val; while (--cnt);
 }
+*/
 
 /* Compare memory block */
+#define mem_cmp(x,y,z) memcmp(x,y,z)
+/*
 static
-int mem_cmp (const void* dst, const void* src, UINT cnt) {	/* ZR:same, NZ:different */
+int mem_cmp (const void* dst, const void* src, UINT cnt) {
 	const BYTE *d = (const BYTE *)dst, *s = (const BYTE *)src;
 	int r = 0;
 
@@ -709,7 +718,7 @@ int mem_cmp (const void* dst, const void* src, UINT cnt) {	/* ZR:same, NZ:differ
 
 	return r;
 }
-
+*/
 /* Check if chr is contained in the string */
 static
 int chk_chr (const char* str, int chr) {	/* NZ:contained, ZR:not contained */
