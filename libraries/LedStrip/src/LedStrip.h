@@ -30,7 +30,7 @@
 #include <stm32f4xx.h>
 #include <ServiceTimer.h>
 #include <bitmap.h>
-#include "LedStripDriver.h"
+#include <LedStripDriver.h>
 
 #define LED_STRIP_BUFFERS		2
 #define LED_STRIP_BUFFER_LEN	24
@@ -57,7 +57,7 @@ typedef struct _LedStripEffect
 			uint8_t step;
 			uint32_t update_count;
 			uint32_t update_every;
-			COLOR color;
+			uint32_t color;
 			bool update;
 			bool up;
 			bool random;
@@ -73,21 +73,21 @@ typedef struct _LedStripEffect
 			float g_val;
 			float b_val;
 			float w_val;
-			COLOR end;
+			uint32_t end;
 			uint32_t cycles;
 		} ramp;
 	} params;
-} LedStripEffect;
+} LedStripEffects;
 
 class LedStrip : public LedStripDriver, STObject
 {
 
 public:
 	LedStrip();
+	virtual ~LedStrip() {}
 
 	void shimmer(COLOR color, uint8_t amplitude, uint32_t hz, bool random);
 	void ramp(COLOR start, COLOR end, uint32_t duration);
-	void changeShimmerColor(COLOR color);
 	void stopEffect();
 	inline bool withEffect() { return effect.active; }
 
@@ -95,7 +95,7 @@ private:
 	void poll();
 	bool updateFromEffect();
 
-	LedStripEffect effect;
+	LedStripEffects effect;
 };
 
 #endif /* __LEDSTRIP_H__ */

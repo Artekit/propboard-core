@@ -49,7 +49,7 @@ void LedStrip::ramp(COLOR start, COLOR end, uint32_t duration)
 	effect.type = LedStripEffectRamp;
 	effect.tick_count = 0;
 	effect.ticks = 20; // update every 20ms
-	effect.params.ramp.end = end;
+	effect.params.ramp.end = end.toInt();
 	effect.params.ramp.cycles = duration / effect.ticks;
 	if (effect.params.ramp.cycles == 0)
 		effect.params.ramp.cycles = 1;
@@ -116,21 +116,11 @@ void LedStrip::shimmer(COLOR color, uint8_t amplitude, uint32_t hz, bool random)
 		effect.params.shimmer.update_every = 10;
 	}
 
-	effect.params.shimmer.color = color;
+	effect.params.shimmer.color = color.toInt();
 
 	use_single_color = true;
 	effect.active = true;
 	add();
-}
-
-void LedStrip::changeShimmerColor(COLOR color)
-{
-	if (effect.type == LedStripEffectShimmer && effect.active)
-	{
-		__disable_irq();
-		effect.params.shimmer.color = color;
-		__enable_irq();
-	}
 }
 
 void LedStrip::poll()
@@ -153,7 +143,8 @@ void LedStrip::poll()
 						effect.params.shimmer.depth = getRandom(effect.params.shimmer.low, 100);
 					}
 
-					packSingleColor(effect.params.shimmer.color, effect.params.shimmer.depth, single_color);
+					COLOR color(effect.params.shimmer.color);
+					packSingleColor(color, effect.params.shimmer.depth, single_color);
 					updateFromEffect();
 				}
 			} else {
@@ -184,7 +175,8 @@ void LedStrip::poll()
 					if (effect.params.shimmer.update_count >= effect.params.shimmer.update_every && !busy())
 					{
 						effect.params.shimmer.update_count = 0;
-						packSingleColor(effect.params.shimmer.color, effect.params.shimmer.depth, single_color);
+						COLOR color(effect.params.shimmer.color);
+						packSingleColor(color, effect.params.shimmer.depth, single_color);
 						updateFromEffect();
 					}
 				}
@@ -209,7 +201,7 @@ void LedStrip::poll()
 
 					if (effect.params.ramp.cycles > 1)
 					{
-						color = RGBW((uint8_t) effect.params.ramp.r_val,
+						color = COLOR((uint8_t) effect.params.ramp.r_val,
 						             (uint8_t) effect.params.ramp.g_val,
 									 (uint8_t) effect.params.ramp.b_val,
 									 (uint8_t) effect.params.ramp.w_val);
