@@ -67,23 +67,23 @@ public:
 	virtual void deallocate() = 0;
 
 	virtual void set(uint32_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t w) = 0;
-	virtual void set(uint32_t index, COLOR color)
+	virtual void set(uint32_t index, const COLOR& color)
 	{
 		set(index, getRed(color), getGreen(color), getBlue(color), getWhite(color));
 	}
 
 	virtual void setRange(uint32_t start, uint32_t end, uint8_t r, uint8_t g, uint8_t b, uint8_t w) = 0;
-	virtual void setRange(uint32_t start, uint32_t end, COLOR color)
+	virtual void setRange(uint32_t start, uint32_t end, const COLOR& color)
 	{
 		setRange(start, end, getRed(color), getGreen(color), getBlue(color), getWhite(color));
 	}
 
 	virtual void get(uint32_t index, uint8_t* r, uint8_t* g, uint8_t* b, uint8_t* w) = 0;
-	virtual COLOR get(uint32_t index)
+	virtual const COLOR get(uint32_t index)
 	{
 		uint8_t r, g, b, w;
 		get(index, &r, &g, &b, &w);
-		return (COLOR) RGBW(r, g, b, w);
+		return RGBW(r, g, b, w);
 	}
 
 	virtual inline uint32_t getBufferAddress() { return (uint32_t) buffer; }
@@ -153,19 +153,20 @@ class LedStripDataWS2812 : public LedStripData
 		}
 	}
 
-	void setRange(uint32_t start, uint32_t count, uint8_t r, uint8_t g, uint8_t b, uint8_t w)
+	void setRange(uint32_t start, uint32_t end, uint8_t r, uint8_t g, uint8_t b, uint8_t w)
 	{
 		(void)(w);
 		uint8_t data[3];
 		uint32_t index;
+		uint32_t count;
 
-		if (!start || !count || start > led_count)
+		if (!start || !end || start > led_count)
 			return;
 
-		if (start == led_count)
-			led_count = 1;
-		else if (start + count > led_count)
-			count = led_count - start;
+		if (end > led_count)
+			end = led_count;
+
+		count = end - start + 1;
 
 		index = (start - 1) * 3;
 
@@ -189,9 +190,9 @@ class LedStripDataWS2812 : public LedStripData
 
 		uint8_t* ptr = buffer + index;
 
-		if (g) *g = __RBIT(ptr[0] >> 24);
-		if (r) *r = __RBIT(ptr[1] >> 24);
-		if (b) *b = __RBIT(ptr[2] >> 24);
+		if (g) *g = __RBIT(ptr[0]) >> 24;
+		if (r) *r = __RBIT(ptr[1]) >> 24;
+		if (b) *b = __RBIT(ptr[2]) >> 24;
 	}
 
 	void pack(uint8_t* dst, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0)
@@ -214,7 +215,7 @@ class LedStripDataSK6812RGBW : public LedStripData
 			return false;
 
 		memset(buffer, 0, buffer_size);
-		return false;
+		return true;
 	}
 
 	void deallocate()
@@ -238,7 +239,7 @@ class LedStripDataSK6812RGBW : public LedStripData
 			count = led_count;
 
 		pack((uint8_t*) &data, r, g, b, w);
-		ptr += index;
+		ptr += (index - 1);
 
 		while (count)
 		{
@@ -405,12 +406,10 @@ class LedStripDataAPA102 : public LedStripData
 	}
 };
 
-extern "C" void EXTI2_IRQHandler();
 extern "C" void DMA2_Stream5_IRQHandler(void);
 
 class LedStripDriver
 {
-	friend void EXTI2_IRQHandler();
 	friend void DMA2_Stream5_IRQHandler(void);
 
 public:
@@ -419,10 +418,11 @@ public:
 	bool begin(uint32_t count, LedStripeType type = WS2812B);
 	void end();
 
-	void set(uint32_t index, COLOR color);
+	void set(uint32_t index, const COLOR& color);
 	void set(uint32_t index, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0);
+	COLOR get(uint32_t index) { return led_data->get(index); }
 
-	void setRange(uint32_t start, uint32_t end, COLOR color);
+	void setRange(uint32_t start, uint32_t end, const COLOR& color);
 	void setRange(uint32_t start, uint32_t end, uint8_t r, uint8_t g, uint8_t b, uint8_t w = 0);
 
 	bool update(uint32_t index = 0, bool async = false);
@@ -437,11 +437,11 @@ public:
 
 protected:
 
-	void packSingleColor(COLOR color, int16_t depth, uint8_t* dest);
-	uint32_t* packIntoBuffer(uint8_t* dst, uint32_t* bbaddr);
+	void packSingleColor(const COLOR& color, int16_t depth, uint8_t* dest);
+	uint32_t* packIntoBuffer(uint8_t* dst, uint32_t* bbaddr) __attribute__ ((optimize(3)));
 
 	bool updateInternal(uint32_t index = 0, LedStripData* data = NULL, bool async = false);
-	void swInterrupt();
+	void ledTxHandler() __attribute__ ((optimize(3)));
 	bool busy();
 	void poll();
 
@@ -456,11 +456,11 @@ protected:
 	LedStripeType led_type;
 	volatile bool on_tx;
 	uint8_t* updating_buffer;
-	uint32_t leds_to_update;
-	uint32_t updating_leds;
+	volatile uint32_t leds_to_update;
+	volatile uint32_t updating_leds;
 	bool send_apa102_end_frame;
-	LedStripData* led_data;
 	LedStripData* updating_data;
+	LedStripData* led_data;
 };
 
 #endif /* __LEDSTRIPDRIVER_H__ */

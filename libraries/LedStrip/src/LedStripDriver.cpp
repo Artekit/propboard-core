@@ -47,9 +47,8 @@
  *		  sequences for 24-bits color).
  *
  * - There are two 72 bytes buffers: one for sending and one for filling with new data. It uses
- * 	 DMA2 Stream5 Transfer Complete interrupt to switch buffers and send. For the WS2812/WS2812B
- *	 and SK6812RGBW	it will queue an EXTI software interrupt at a lower priority to fill the buffer
- *	 that is not being transmitted.
+ * 	 DMA2 Stream5 Transfer Complete interrupt to switch and send buffers, while packing another 72
+ * 	 bytes in a new buffer.
  * - For APA102C there are no "code" buffers. We use the main buffer to store and send the required bits.
  *   The buffer is split in three parts: the first 4 bytes are the start frame, the it follows the pixel
  *   data, and the last 4 bytes are the end frame. It's probably that the APA102C string is mostly update
@@ -162,7 +161,7 @@ void LedStripDriver::end()
 	}
 }
 
-void LedStripDriver::set(uint32_t index, COLOR color)
+void LedStripDriver::set(uint32_t index, const COLOR& color)
 {
 	set(index, getRed(color), getGreen(color), getBlue(color), getWhite(color));
 }
@@ -172,15 +171,15 @@ void LedStripDriver::set(uint32_t index, uint8_t r, uint8_t g, uint8_t b, uint8_
 	if (!initialized)
 		return;
 
-	r = cie_lut[r] * brightness;
-	g = cie_lut[g] * brightness;
-	b = cie_lut[b] * brightness;
-	w = cie_lut[w] * brightness;
+	r = cie_lut[(uint8_t) (r * brightness)];
+	g = cie_lut[(uint8_t) (g * brightness)];
+	b = cie_lut[(uint8_t) (b * brightness)];
+	w = cie_lut[(uint8_t) (w * brightness)];
 
 	led_data->set(index, r, g, b, w);
 }
 
-void LedStripDriver::setRange(uint32_t start, uint32_t end, COLOR color)
+void LedStripDriver::setRange(uint32_t start, uint32_t end, const COLOR& color)
 {
 	setRange(start, end, getRed(color), getGreen(color), getBlue(color), getWhite(color));
 }
@@ -190,12 +189,12 @@ void LedStripDriver::setRange(uint32_t start, uint32_t end, uint8_t r, uint8_t g
 	if (!initialized)
 		return;
 
-	r = cie_lut[r] * brightness;
-	g = cie_lut[g] * brightness;
-	b = cie_lut[b] * brightness;
-	w = cie_lut[w] * brightness;
+	r = cie_lut[(uint8_t) (r * brightness)];
+	g = cie_lut[(uint8_t) (g * brightness)];
+	b = cie_lut[(uint8_t) (b * brightness)];
+	w = cie_lut[(uint8_t) (w * brightness)];
 
-	led_data->setRange(start, end, r, g, b, 0);
+	led_data->setRange(start, end, r, g, b, w);
 }
 
 bool LedStripDriver::update(uint32_t index, bool async)
@@ -229,35 +228,41 @@ void LedStripDriver::setBrightness(float value)
 
 uint32_t* LedStripDriver::packIntoBuffer(uint8_t* dst, uint32_t* bbaddr)
 {
-	uint8_t bitcnt = 24;
-	uint8_t* code0 = ws2812_code0;
-	uint8_t* code1 = ws2812_code1;
+	uint8_t bitcnt = 0;
+	uint8_t* code0 = NULL;
+	uint8_t* code1 = NULL;
 
-	if (led_type == SK6812RGBW)
+	if (led_type == WS2812B)
+	{
+		bitcnt = 24;
+		code0 = ws2812_code0;
+		code1 = ws2812_code1;
+	} else if (led_type == SK6812RGBW)
 	{
 		bitcnt = 32;
 		code0 = sk6812rgbw_code0;
 		code1 = sk6812rgbw_code1;
 	}
 
-	for (uint8_t i = 0; i < bitcnt; i++)
+	while (bitcnt)
 	{
+		// Yes, these are unaligned accesses, supported by the M4 through LDR and STR instructions.
+		// We gain several uS with this method.
+		// TODO: don't rely on the compiler and do some assembler routines.
 		if (*bbaddr++)
 		{
-			*dst++ = code1[0];
-			*dst++ = code1[1];
-			*dst++ = code1[2];
+			*((uint32_t*) dst) = *((uint32_t*) code1);
 		} else {
-			*dst++ = code0[0];
-			*dst++ = code0[1];
-			*dst++ = code0[2];
+			*((uint32_t*) dst) = *((uint32_t*) code0);
 		}
-	}
 
+		dst += 3;
+		bitcnt--;
+	}
 	return bbaddr;
 }
 
-void LedStripDriver::packSingleColor(COLOR color, int16_t depth, uint8_t* dest)
+void LedStripDriver::packSingleColor(const COLOR& color, int16_t depth, uint8_t* dest)
 {
 	uint8_t r, g, b, w;
 
@@ -354,21 +359,6 @@ bool LedStripDriver::updateInternal(uint32_t index, LedStripData* data, bool asy
 		SPI.endTransaction();
 		SPI.beginTransaction(SPISettings(21000000, MSBFIRST, SPI_MODE1, true));
 
-		// Configure EXTI2
-		EXTI_ClearFlag(EXTI_Line2);
-		NVIC_ClearPendingIRQ(EXTI2_IRQn);
-
-		EXTI_InitTypeDef EXTI_InitStruct;
-
-		EXTI_InitStruct.EXTI_Line = EXTI_Line2;
-		EXTI_InitStruct.EXTI_LineCmd = ENABLE;
-		EXTI_InitStruct.EXTI_Mode = EXTI_Mode_Interrupt;
-		EXTI_InitStruct.EXTI_Trigger = EXTI_Trigger_Rising;
-		EXTI_Init(&EXTI_InitStruct);
-
-		NVIC_SetPriority(EXTI2_IRQn, VARIANT_PRIO_LEDSTRIP_EXTI);
-		NVIC_EnableIRQ(EXTI2_IRQn);
-
 		// Configure DMA2 Stream5
 		NVIC_ClearPendingIRQ(DMA2_Stream5_IRQn);
 		NVIC_SetPriority(DMA2_Stream5_IRQn, VARIANT_PRIO_LEDSTRIP_DMA);
@@ -444,6 +434,7 @@ bool LedStripDriver::updateInternal(uint32_t index, LedStripData* data, bool asy
 							DMA_MemoryDataSize_Byte		|
 							DMA_PeripheralBurst_Single	|
 							DMA_MemoryBurst_Single |
+							DMA_Priority_Low |
 							DMA_IT_TC;
 
 		DMA2_Stream5->M0AR = updating_data->getBufferAddress();
@@ -494,7 +485,7 @@ bool LedStripDriver::updateInternal(uint32_t index, LedStripData* data, bool asy
 	return true;
 }
 
-void LedStripDriver::swInterrupt()
+void LedStripDriver::ledTxHandler()
 {
 	if (leds_to_update > 1)
 	{
@@ -516,7 +507,6 @@ void LedStripDriver::swInterrupt()
 		// Last LED sent, end procedure
 		DMA2_Stream5->CR = 0;
 		NVIC_DisableIRQ(DMA2_Stream5_IRQn);
-		NVIC_DisableIRQ(EXTI2_IRQn);
 		on_tx = false;
 		led_strip_update = NULL;
 	}
@@ -526,7 +516,17 @@ extern "C" void DMA2_Stream5_IRQHandler(void)
 {
 	DMA2->HIFCR = 0xF00;
 
-	if (led_strip_update->led_type == APA102)
+
+	if (led_strip_update->led_type != APA102)
+	{
+		if (led_strip_update->leds_to_update)
+		{
+			DMA2_Stream5->M0AR = (uint32_t) led_strip_update->updating_buffer;
+			DMA2_Stream5->CR = 0x6000451;
+		}
+
+		led_strip_update->ledTxHandler();
+	} else
 	{
 		if (led_strip_update->leds_to_update)
 		{
@@ -557,20 +557,5 @@ extern "C" void DMA2_Stream5_IRQHandler(void)
 				led_strip_update = NULL;
 			}
 		}
-	} else {
-
-		if (led_strip_update->leds_to_update)
-		{
-			DMA2_Stream5->M0AR = (uint32_t) led_strip_update->updating_buffer;
-			DMA2_Stream5->CR = 0x6000451;
-		}
-
-		EXTI_GenerateSWInterrupt(EXTI_Line2);
 	}
-}
-
-extern "C" void EXTI2_IRQHandler(void)
-{
-	EXTI_ClearFlag(EXTI_Line2);
-	led_strip_update->swInterrupt();
 }
