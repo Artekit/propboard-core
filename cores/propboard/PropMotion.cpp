@@ -744,6 +744,9 @@ uint8_t PropMotion::getPulseSource()
 	if (!(reg & MotionPulseDetected))
 		return 0;
 
+	// Remove EA and DPE
+	reg &= 0x77;
+
 	return reg;
 }
 
