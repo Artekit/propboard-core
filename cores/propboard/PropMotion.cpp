@@ -221,7 +221,7 @@ bool PropMotion::configDataReady(MotionInterrupt irq)
 	return true;
 }
 
-bool PropMotion::configAnyMotion(Axis axis, float force_mg, uint32_t time, MotionInterrupt irq)
+bool PropMotion::configAnyMotion(Axis axis, float force_g, uint32_t time, MotionInterrupt irq)
 {
 	uint8_t value = 0;
 	uint8_t odr = 0;
@@ -256,7 +256,7 @@ bool PropMotion::configAnyMotion(Axis axis, float force_mg, uint32_t time, Motio
 		return false;
 
 	// Configure threshold
-	value = (uint8_t) (force_mg / 0.063f) & 0x7F;
+	value = (uint8_t) (force_g / 0.063f) & 0x7F;
 
 	if (!writeRegister(MMA8452_FF_MT_THS, value))
 		return false;
@@ -358,7 +358,7 @@ bool PropMotion::setHighPassFilter(bool enable)
 	return true;
 }
 
-bool PropMotion::configTransient(Axis axis, float force_mg, uint32_t time, MotionInterrupt irq)
+bool PropMotion::configTransient(Axis axis, float force_g, uint32_t time, MotionInterrupt irq)
 {
 	uint8_t value = 0;
 	uint8_t odr;
@@ -405,7 +405,7 @@ bool PropMotion::configTransient(Axis axis, float force_mg, uint32_t time, Motio
 		return false;
 
 	// Configure threshold
-	value = ((uint8_t) (force_mg / 0.063f)) & 0x7F;
+	value = ((uint8_t) (force_g / 0.063f)) & 0x7F;
 
 	if (!writeRegister(MMA8452_TRANSIENT_THS, value))
 		return false;
@@ -450,7 +450,7 @@ bool PropMotion::configTransient(Axis axis, float force_mg, uint32_t time, Motio
 	return true;
 }
 
-bool PropMotion::configPulse(Axis axis, float force_mg, uint32_t time, uint32_t latency, MotionInterrupt irq)
+bool PropMotion::configPulse(Axis axis, float force_g, uint32_t time, uint32_t latency, MotionInterrupt irq)
 {
 	uint8_t value = 0;
 	uint8_t odr;
@@ -508,7 +508,7 @@ bool PropMotion::configPulse(Axis axis, float force_mg, uint32_t time, uint32_t 
 		return false;
 
 	// Configure threshold
-	value = (uint8_t) (force_mg / 0.063f) & 0x7F;
+	value = (uint8_t) (force_g / 0.063f) & 0x7F;
 
 	if (axis & AxisX)
 	{
@@ -725,7 +725,7 @@ uint8_t PropMotion::getTransientSource()
 	if (!readRegister(MMA8452_TRANSIENT_SRC, &reg))
 		return 0;
 
-	if (!(reg & MotionDetected))
+	if (!(reg & MotionTransientDetected))
 		return 0;
 
 	// Remove EA

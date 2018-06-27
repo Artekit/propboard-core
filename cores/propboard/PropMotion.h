@@ -99,14 +99,22 @@
 #define MotionOnZ					0x20
 #define MotionDetected				0x40
 
-#define MotionPulseOnX				0x08
-#define MotionPulseOnY				0x10
-#define MotionPulseOnZ				0x20
+#define MotionTransientNegativeX	0x01
+#define MotionTransientOnX			0x02
+#define MotionTransientNegativeY	0x04
+#define MotionTransientOnY			0x08
+#define MotionTransientNegativeZ	0x10
+#define MotionTransientOnZ			0x20
+#define MotionTransientDetected		0x40
+
 #define MotionPulseNegativeX		0x01
 #define MotionPulseNegativeY		0x02
 #define MotionPulseNegativeZ		0x04
-#define MotionPulseDetected			0x80
 #define MotionDoublePulse			0x08
+#define MotionPulseOnX				0x10
+#define MotionPulseOnY				0x20
+#define MotionPulseOnZ				0x40
+#define MotionPulseDetected			0x80
 
 typedef uint32_t MotionEvent;
 typedef uint8_t Axis;
@@ -141,9 +149,9 @@ public:
 	bool dataReady();
 
 	bool configDataReady(MotionInterrupt irq);
-	bool configAnyMotion(Axis axis, float force_mg, uint32_t time, MotionInterrupt irq = MotionInterruptNone);
-	bool configTransient(Axis axis, float force_mg, uint32_t time, MotionInterrupt irq = MotionInterruptNone);
-	bool configPulse(Axis axis, float force_mg, uint32_t time, uint32_t latency, MotionInterrupt irq = MotionInterruptNone);
+	bool configAnyMotion(Axis axis, float force_g, uint32_t time, MotionInterrupt irq = MotionInterruptNone);
+	bool configTransient(Axis axis, float force_g, uint32_t time, MotionInterrupt irq = MotionInterruptNone);
+	bool configPulse(Axis axis, float force_g, uint32_t time, uint32_t latency, MotionInterrupt irq = MotionInterruptNone);
 
 	// Interrupt handling
 	bool attachInterrupt(MotionInterrupt irq, MotionInterruptCallback* callback);
