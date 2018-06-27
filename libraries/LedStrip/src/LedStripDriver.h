@@ -443,7 +443,6 @@ protected:
 	bool updateInternal(uint32_t index = 0, LedStripData* data = NULL, bool async = false);
 	void ledTxHandler() __attribute__ ((optimize(3)));
 	bool busy();
-	void poll();
 
 	bool initialized;
 	bool use_single_color;
