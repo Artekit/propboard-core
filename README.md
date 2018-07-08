@@ -19,7 +19,7 @@ You can report bugs here by creating a new issue or in the dedicated PropBoard f
 
 ## Version
 
-These files belong to the core version v1.0.2. This is the version number shown when installing the PropBoard Board Package from the Arduino IDE boards manager.
+These files belong to the core version v1.0.3. This is the version number shown when installing the PropBoard Board Package from the Arduino IDE boards manager.
 
 ## License
 
