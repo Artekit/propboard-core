@@ -153,8 +153,17 @@ void deinitHBLEDHardware()
 
 HBLED::HBLED(uint8_t ch)
 {
-	HBLED();
+	cc_reg = NULL;
+	max_current = 0;
+	pwm_percent = 0;
+	pwm_value = 0;
+	initialized = false;
+	multiplier = 1;
+	last_value = 0;
 	channel = ch;
+#ifdef HBLED_BETA_SOFT_START
+	first_time = false;
+#endif
 }
 
 HBLED::HBLED()
